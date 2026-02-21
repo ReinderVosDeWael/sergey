@@ -52,6 +52,20 @@ class TestIMP001:
         """
         assert _check_imp001(source) == ["IMP001", "IMP001"]
 
+    def test_submodule_import_ok(self) -> None:
+        # os.path is a real submodule of os — should not be flagged
+        assert _check_imp001("from os import path") == []
+
+    def test_submodule_and_class_mixed(self) -> None:
+        # path is a submodule (ok), getcwd is a function (bad) — one diagnostic
+        # mentioning only getcwd
+        source = "from os import path, getcwd"
+        tree = ast.parse(source)
+        diags = IMP001().check(tree, source)
+        assert len(diags) == 1
+        assert "getcwd" in diags[0].message
+        assert "path" not in diags[0].message
+
     def test_future_import_excluded(self) -> None:
         assert _check_imp001("from __future__ import annotations") == []
 

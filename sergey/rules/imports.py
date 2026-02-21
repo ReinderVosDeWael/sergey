@@ -1,8 +1,9 @@
 """Import-style rules: IMP001 and IMP002."""
 
 import ast
+import importlib.util
 
-from sergey.rules.base import Diagnostic, Rule, Severity
+from sergey.rules import base
 
 # Modules excluded from IMP001 — they are covered by IMP002 or are special syntax.
 _IMP001_EXCLUDED: frozenset[str] = frozenset({"__future__", "typing"})
@@ -11,21 +12,33 @@ _IMP001_EXCLUDED: frozenset[str] = frozenset({"__future__", "typing"})
 _TYPING_MODULES: frozenset[str] = frozenset({"typing", "typing_extensions"})
 
 
-class IMP001(Rule):
+def _is_submodule(parent: str, name: str) -> bool:
+    """Return True if `parent.name` resolves to an importable module or package."""
+    try:
+        return importlib.util.find_spec(f"{parent}.{name}") is not None
+    except (ModuleNotFoundError, ValueError):
+        return False
+
+
+class IMP001(base.Rule):
     """Flag from-imports that import names (classes/functions) instead of modules.
+
+    Submodule imports are allowed — only names that cannot be resolved as a
+    module are flagged.
 
     Allowed:
         import os
         import os.path
+        from lsprotocol import types   # types is a submodule
 
     Flagged:
         from os.path import join
         from collections import OrderedDict
     """
 
-    def check(self, tree: ast.Module, source: str) -> list[Diagnostic]:
-        """Return a diagnostic for every non-typing from-import."""
-        diagnostics: list[Diagnostic] = []
+    def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
+        """Return a diagnostic for every non-typing from-import of a non-module name."""
+        diagnostics: list[base.Diagnostic] = []
         try:
             for node in ast.walk(tree):
                 if not isinstance(node, ast.ImportFrom):
@@ -33,11 +46,24 @@ class IMP001(Rule):
                 module = node.module or ""
                 if module in _IMP001_EXCLUDED:
                     continue
-                names = ", ".join(alias.name for alias in node.names)
+
+                # For absolute imports, skip names that resolve to submodules.
+                if node.level == 0 and module:
+                    bad_aliases = [
+                        alias for alias in node.names
+                        if not _is_submodule(module, alias.name)
+                    ]
+                else:
+                    bad_aliases = list(node.names)
+
+                if not bad_aliases:
+                    continue
+
+                names = ", ".join(alias.name for alias in bad_aliases)
                 dots = "." * node.level
                 module_display = f"{dots}{module}" if module else dots
                 diagnostics.append(
-                    Diagnostic(
+                    base.Diagnostic(
                         rule_id="IMP001",
                         message=(
                             f"Import the module directly instead of importing"
@@ -47,7 +73,7 @@ class IMP001(Rule):
                         col=node.col_offset,
                         end_line=node.end_lineno or node.lineno,
                         end_col=node.end_col_offset or node.col_offset,
-                        severity=Severity.WARNING,
+                        severity=base.Severity.WARNING,
                     )
                 )
         except Exception:  # noqa: BLE001, S110
@@ -55,7 +81,7 @@ class IMP001(Rule):
         return diagnostics
 
 
-class IMP002(Rule):
+class IMP002(base.Rule):
     """Flag from-imports of typing modules; require `import typing` instead.
 
     Allowed:
@@ -66,9 +92,9 @@ class IMP002(Rule):
         from typing_extensions import Protocol
     """
 
-    def check(self, tree: ast.Module, source: str) -> list[Diagnostic]:
+    def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
         """Return a diagnostic for every from-import of a typing module."""
-        diagnostics: list[Diagnostic] = []
+        diagnostics: list[base.Diagnostic] = []
         try:
             for node in ast.walk(tree):
                 if not isinstance(node, ast.ImportFrom):
@@ -77,7 +103,7 @@ class IMP002(Rule):
                     continue
                 names = ", ".join(alias.name for alias in node.names)
                 diagnostics.append(
-                    Diagnostic(
+                    base.Diagnostic(
                         rule_id="IMP002",
                         message=(
                             f"Use `import {node.module}` instead of"
@@ -87,7 +113,7 @@ class IMP002(Rule):
                         col=node.col_offset,
                         end_line=node.end_lineno or node.lineno,
                         end_col=node.end_col_offset or node.col_offset,
-                        severity=Severity.WARNING,
+                        severity=base.Severity.WARNING,
                     )
                 )
         except Exception:  # noqa: BLE001, S110
