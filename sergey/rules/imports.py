@@ -1,7 +1,7 @@
-"""Import-style rules: IMP001 and IMP002."""
+"""Import-style rules: IMP001, IMP002, and IMP003."""
 
 import ast
-import importlib.util
+from importlib import util as importlib_util
 
 from sergey.rules import base
 
@@ -15,7 +15,7 @@ _TYPING_MODULES: frozenset[str] = frozenset({"typing", "typing_extensions"})
 def _is_submodule(parent: str, name: str) -> bool:
     """Return True if `parent.name` resolves to an importable module or package."""
     try:
-        return importlib.util.find_spec(f"{parent}.{name}") is not None
+        return importlib_util.find_spec(f"{parent}.{name}") is not None
     except (ModuleNotFoundError, ValueError):
         return False
 
@@ -28,7 +28,7 @@ class IMP001(base.Rule):
 
     Allowed:
         import os
-        import os.path
+        from os import path
         from lsprotocol import types   # types is a submodule
 
     Flagged:
@@ -50,7 +50,8 @@ class IMP001(base.Rule):
                 # For absolute imports, skip names that resolve to submodules.
                 if node.level == 0 and module:
                     bad_aliases = [
-                        alias for alias in node.names
+                        alias
+                        for alias in node.names
                         if not _is_submodule(module, alias.name)
                     ]
                 else:
@@ -116,6 +117,49 @@ class IMP002(base.Rule):
                         severity=base.Severity.WARNING,
                     )
                 )
+        except Exception:  # noqa: BLE001, S110
+            pass
+        return diagnostics
+
+
+class IMP003(base.Rule):
+    """Flag dotted plain imports; require `from X import Y` for submodule access.
+
+    Allowed:
+        import os
+        from os import path
+        from pygls.lsp import server
+
+    Flagged:
+        import os.path
+        import pygls.lsp.server
+    """
+
+    def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
+        """Return a diagnostic for every dotted plain import."""
+        diagnostics: list[base.Diagnostic] = []
+        try:
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Import):
+                    continue
+                for alias in node.names:
+                    if "." not in alias.name:
+                        continue
+                    parent, _, name = alias.name.rpartition(".")
+                    diagnostics.append(
+                        base.Diagnostic(
+                            rule_id="IMP003",
+                            message=(
+                                f"Use `from {parent} import {name}`"
+                                f" instead of `import {alias.name}`"
+                            ),
+                            line=node.lineno,
+                            col=node.col_offset,
+                            end_line=node.end_lineno or node.lineno,
+                            end_col=node.end_col_offset or node.col_offset,
+                            severity=base.Severity.WARNING,
+                        )
+                    )
         except Exception:  # noqa: BLE001, S110
             pass
         return diagnostics

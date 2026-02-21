@@ -1,15 +1,15 @@
 """Base abstractions for sergey rules."""
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from enum import Enum
-from typing import TYPE_CHECKING
+import abc
+import dataclasses
+import enum
+import typing
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     import ast
 
 
-class Severity(Enum):
+class Severity(enum.Enum):
     """LSP diagnostic severity levels."""
 
     ERROR = 1
@@ -18,7 +18,7 @@ class Severity(Enum):
     HINT = 4
 
 
-@dataclass
+@dataclasses.dataclass
 class Diagnostic:
     """A single diagnostic emitted by a rule."""
 
@@ -31,10 +31,10 @@ class Diagnostic:
     severity: Severity
 
 
-class Rule(ABC):
+class Rule(abc.ABC):
     """Abstract base class for all sergey rules."""
 
-    @abstractmethod
+    @abc.abstractmethod
     def check(self, tree: ast.Module, source: str) -> list[Diagnostic]:
         """Analyze the AST and return any diagnostics.
 

@@ -1,19 +1,24 @@
-"""Tests for IMP001 and IMP002 import-style rules."""
+"""Tests for IMP001, IMP002, and IMP003 import-style rules."""
 
 import ast
 import textwrap
 
-from sergey.rules.imports import IMP001, IMP002
+from sergey.rules import imports
 
 
 def _check_imp001(source: str) -> list[str]:
     tree = ast.parse(textwrap.dedent(source))
-    return [d.rule_id for d in IMP001().check(tree, source)]
+    return [diag.rule_id for diag in imports.IMP001().check(tree, source)]
 
 
 def _check_imp002(source: str) -> list[str]:
     tree = ast.parse(textwrap.dedent(source))
-    return [d.rule_id for d in IMP002().check(tree, source)]
+    return [diag.rule_id for diag in imports.IMP002().check(tree, source)]
+
+
+def _check_imp003(source: str) -> list[str]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.rule_id for diag in imports.IMP003().check(tree, source)]
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +66,7 @@ class TestIMP001:
         # mentioning only getcwd
         source = "from os import path, getcwd"
         tree = ast.parse(source)
-        diags = IMP001().check(tree, source)
+        diags = imports.IMP001().check(tree, source)
         assert len(diags) == 1
         assert "getcwd" in diags[0].message
         assert "path" not in diags[0].message
@@ -85,14 +90,14 @@ class TestIMP001:
             from os.path import join
         """)
         tree = ast.parse(source)
-        diags = IMP001().check(tree, source)
+        diags = imports.IMP001().check(tree, source)
         assert len(diags) == 1
         assert diags[0].line == 2
 
     def test_diagnostic_message_contains_name_and_module(self) -> None:
         source = "from os.path import join"
         tree = ast.parse(source)
-        diags = IMP001().check(tree, source)
+        diags = imports.IMP001().check(tree, source)
         assert "join" in diags[0].message
         assert "os.path" in diags[0].message
 
@@ -132,19 +137,81 @@ class TestIMP002:
             from typing import Optional
         """)
         tree = ast.parse(source)
-        diags = IMP002().check(tree, source)
+        diags = imports.IMP002().check(tree, source)
         assert len(diags) == 1
         assert diags[0].line == 2
 
     def test_diagnostic_message_contains_name_and_module(self) -> None:
         source = "from typing import Optional"
         tree = ast.parse(source)
-        diags = IMP002().check(tree, source)
+        diags = imports.IMP002().check(tree, source)
         assert "Optional" in diags[0].message
         assert "typing" in diags[0].message
 
     def test_rule_id(self) -> None:
         source = "from typing import Any"
         tree = ast.parse(source)
-        diags = IMP002().check(tree, source)
+        diags = imports.IMP002().check(tree, source)
         assert diags[0].rule_id == "IMP002"
+
+
+# ---------------------------------------------------------------------------
+# IMP003 — dotted plain imports
+# ---------------------------------------------------------------------------
+
+
+class TestIMP003:
+    def test_plain_import_ok(self) -> None:
+        assert _check_imp003("import os") == []
+
+    def test_plain_import_multiple_ok(self) -> None:
+        assert _check_imp003("import os, sys, re") == []
+
+    def test_dotted_import_flagged(self) -> None:
+        assert _check_imp003("import os.path") == ["IMP003"]
+
+    def test_deep_dotted_import_flagged(self) -> None:
+        assert _check_imp003("import importlib.util") == ["IMP003"]
+
+    def test_aliased_dotted_import_flagged(self) -> None:
+        assert _check_imp003("import os.path as ospath") == ["IMP003"]
+
+    def test_mixed_one_dotted_one_plain(self) -> None:
+        # os.path is dotted (flagged), sys is plain (ok) — one diagnostic
+        assert _check_imp003("import os.path, sys") == ["IMP003"]
+
+    def test_two_dotted_imports_two_diagnostics(self) -> None:
+        assert _check_imp003("import os.path, importlib.util") == ["IMP003", "IMP003"]
+
+    def test_from_import_not_flagged(self) -> None:
+        # IMP003 only checks ast.Import nodes, not ast.ImportFrom
+        assert _check_imp003("from os import path") == []
+
+    def test_diagnostic_suggests_from_import(self) -> None:
+        source = "import os.path"
+        tree = ast.parse(source)
+        diags = imports.IMP003().check(tree, source)
+        assert len(diags) == 1
+        assert "from os import path" in diags[0].message
+
+    def test_diagnostic_suggests_correct_parent_for_deep_import(self) -> None:
+        source = "import importlib.util"
+        tree = ast.parse(source)
+        diags = imports.IMP003().check(tree, source)
+        assert "from importlib import util" in diags[0].message
+
+    def test_diagnostic_line_number(self) -> None:
+        source = textwrap.dedent("""\
+            import os
+            import os.path
+        """)
+        tree = ast.parse(source)
+        diags = imports.IMP003().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].line == 2
+
+    def test_rule_id(self) -> None:
+        source = "import os.path"
+        tree = ast.parse(source)
+        diags = imports.IMP003().check(tree, source)
+        assert diags[0].rule_id == "IMP003"

@@ -1,10 +1,10 @@
 """Entry point: sergey [check <path>... | serve]."""
 
+import pathlib
 import sys
-from pathlib import Path
 
-from sergey.analyzer import Analyzer
-from sergey.rules import ALL_RULES
+from sergey import analyzer as sergey_analyzer
+from sergey import rules
 
 _USAGE = "Usage: sergey [check <path>... | serve]"
 _MIN_ARGS = 2
@@ -16,26 +16,26 @@ _SKIP_DIRS: frozenset[str] = frozenset(
 )
 
 
-def _collect_python_files(root: Path) -> list[Path]:
+def _collect_python_files(root: pathlib.Path) -> list[pathlib.Path]:
     """Recursively find .py files under root, skipping non-source directories."""
     return sorted(
-        p
-        for p in root.rglob("*.py")
-        if not any(part in _SKIP_DIRS for part in p.parts)
+        py_file
+        for py_file in root.rglob("*.py")
+        if not any(part in _SKIP_DIRS for part in py_file.parts)
     )
 
 
 def _run_check(paths: list[str]) -> None:
     """Check one or more files/directories and exit with appropriate code."""
-    python_files: list[Path] = []
+    python_files: list[pathlib.Path] = []
     for raw in paths:
-        p = Path(raw)
-        if p.is_dir():
-            python_files.extend(_collect_python_files(p))
+        raw_path = pathlib.Path(raw)
+        if raw_path.is_dir():
+            python_files.extend(_collect_python_files(raw_path))
         else:
-            python_files.append(p)
+            python_files.append(raw_path)
 
-    analyzer = Analyzer(rules=ALL_RULES)
+    analyzer = sergey_analyzer.Analyzer(rules=rules.ALL_RULES)
     found_any = False
 
     for file_path in python_files:
@@ -46,8 +46,10 @@ def _run_check(paths: list[str]) -> None:
             continue
 
         diagnostics = analyzer.analyze(source)
-        for d in diagnostics:
-            sys.stdout.write(f"{file_path}:{d.line}:{d.col}: {d.rule_id} {d.message}\n")
+        for diag in diagnostics:
+            sys.stdout.write(
+                f"{file_path}:{diag.line}:{diag.col}: {diag.rule_id} {diag.message}\n"
+            )
         if diagnostics:
             found_any = True
 
@@ -63,9 +65,9 @@ def main() -> None:
     command = sys.argv[1]
 
     if command == "serve":
-        from sergey.server import start  # noqa: PLC0415
+        from sergey import server  # noqa: PLC0415
 
-        start()
+        server.start()
 
     elif command == "check":
         if len(sys.argv) < _CHECK_MIN_ARGS:
