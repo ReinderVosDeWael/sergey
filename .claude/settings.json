@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/mercury_bot_check.py",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
