@@ -8,6 +8,15 @@ dependencies = [
     "pygls>=2.0.1",
 ]
 
+[project.scripts]
+sergey = "sergey.__main__:main"
+
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+include = ["sergey*"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",

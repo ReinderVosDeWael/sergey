@@ -21,8 +21,9 @@ uv run ruff check --fix .                    # Lint with auto-fix
 uv run ruff format .                         # Format
 uv run ty check                              # Type check
 uv run pytest                                # Run tests
-uv run python -m sergey check <file>    # Run sergey on a file (CLI mode)
-uv run python -m sergey serve           # Run LSP server over stdio
+uv run sergey check <path>...           # Run sergey on files or directories
+uv run sergey check .                   # Check the whole repository
+uv run sergey serve                     # Run LSP server over stdio
 ```
 
 ## Linting
