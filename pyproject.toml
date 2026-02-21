@@ -4,10 +4,16 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "pygls>=2.0.1",
+]
 
 [dependency-groups]
-dev = ["ruff>=0.15.2", "ty>=0.0.18"]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.2",
+    "ty>=0.0.18",
+]
 
 [tool.ruff.lint]
 preview = false
@@ -39,10 +45,16 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
-    "S101",   # asserts should be used in pytest
-    "SLF001", # accessing private members in tests is fine
-    "INP001", # tests should not be a module
-    "ARG001", # tests can have ununsed arguments (fixtures with side-effects)
+    "S101",    # asserts should be used in pytest
+    "SLF001",  # accessing private members in tests is fine
+    "INP001",  # tests should not be a module
+    "ARG001",  # tests can have unused arguments (fixtures with side-effects)
+    "D1",      # docstrings not required on test classes/methods
+    "D2",      # docstring formatting rules not relevant in tests
+    "PLR2004", # magic values in assertions are fine in tests
+]
+"mercury_bot/rules/*.py" = [
+    "ARG002", # `source` is part of the Rule.check() interface; not all rules use it
 ]
 "local/**/*" = ["ALL"]
 
