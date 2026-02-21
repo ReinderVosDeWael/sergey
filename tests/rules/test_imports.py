@@ -3,7 +3,7 @@
 import ast
 import textwrap
 
-from mercury_bot.rules.imports import IMP001, IMP002
+from sergey.rules.imports import IMP001, IMP002
 
 
 def _check_imp001(source: str) -> list[str]:

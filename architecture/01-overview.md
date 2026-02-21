@@ -1,10 +1,10 @@
 # Overview
 
-## What Is mercury-bot?
+## What Is sergey?
 
-mercury-bot is an opinionated Python LSP designed to run in LLM-powered coding agent loops (e.g. Claude Code, Cursor, Aider). It is **not** a replacement for Pyright or Ty — it runs alongside them. Its purpose is to catch patterns that standard type checkers and linters miss but that LLMs consistently produce: deep nesting, vague naming, long functions, low-quality comments, etc.
+sergey is an opinionated Python LSP designed to run in LLM-powered coding agent loops (e.g. Claude Code, Cursor, Aider). It is **not** a replacement for Pyright or Ty — it runs alongside them. Its purpose is to catch patterns that standard type checkers and linters miss but that LLMs consistently produce: deep nesting, vague naming, long functions, low-quality comments, etc.
 
-The target consumer of diagnostics is primarily the **LLM agent itself**, not a human reading editor output. An agent runs mercury-bot, receives structured diagnostics, and self-corrects before committing.
+The target consumer of diagnostics is primarily the **LLM agent itself**, not a human reading editor output. An agent runs sergey, receives structured diagnostics, and self-corrects before committing.
 
 ## Goals
 
@@ -23,10 +23,10 @@ The target consumer of diagnostics is primarily the **LLM agent itself**, not a 
 
 ## Primary Deployment Model
 
-mercury-bot is designed to run in an **agentic loop**:
+sergey is designed to run in an **agentic loop**:
 
 ```
-LLM writes code → Ruff → Ty → mercury-bot → diagnostics fed back to LLM → repeat
+LLM writes code → Ruff → Ty → sergey → diagnostics fed back to LLM → repeat
 ```
 
 It must also expose a standard LSP server for optional editor integration (e.g. a developer reviewing LLM output), but this is secondary. Editor features beyond `textDocument/publishDiagnostics` (hover, completion, etc.) are out of scope.
@@ -37,6 +37,6 @@ It must also expose a standard LSP server for optional editor integration (e.g. 
 
 **AST-based analysis only.** The standard `ast` module is sufficient for all planned rules. No type inference required (that is Ty's job). This keeps the dependency surface minimal and analysis fast.
 
-**Whole-file analysis per request.** No incremental parsing. Agents send complete file contents; mercury-bot analyzes and responds. This is simpler and sufficient for the batch-style usage pattern.
+**Whole-file analysis per request.** No incremental parsing. Agents send complete file contents; sergey analyzes and responds. This is simpler and sufficient for the batch-style usage pattern.
 
 **Stdio transport.** LSP over stdio is the standard for programmatic use. No HTTP, no WebSocket.

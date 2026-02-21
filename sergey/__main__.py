@@ -1,12 +1,12 @@
-"""Entry point: python -m mercury_bot [check <file> | serve]."""
+"""Entry point: python -m sergey [check <file> | serve]."""
 
 import sys
 from pathlib import Path
 
-from mercury_bot.analyzer import Analyzer
-from mercury_bot.rules import ALL_RULES
+from sergey.analyzer import Analyzer
+from sergey.rules import ALL_RULES
 
-_USAGE = "Usage: python -m mercury_bot [check <file> | serve]"
+_USAGE = "Usage: python -m sergey [check <file> | serve]"
 _MIN_ARGS = 2
 _CHECK_MIN_ARGS = 3
 
@@ -20,13 +20,13 @@ def main() -> None:
     command = sys.argv[1]
 
     if command == "serve":
-        from mercury_bot.server import start  # noqa: PLC0415
+        from sergey.server import start  # noqa: PLC0415
 
         start()
 
     elif command == "check":
         if len(sys.argv) < _CHECK_MIN_ARGS:
-            sys.stderr.write("Usage: python -m mercury_bot check <file>\n")
+            sys.stderr.write("Usage: python -m sergey check <file>\n")
             sys.exit(2)
 
         path = sys.argv[2]

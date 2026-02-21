@@ -1,1 +1,1 @@
-"""Tests for mercury-bot."""
+"""Tests for sergey."""

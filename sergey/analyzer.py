@@ -4,7 +4,7 @@ import ast
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from mercury_bot.rules.base import Diagnostic, Rule
+    from sergey.rules.base import Diagnostic, Rule
 
 
 class Analyzer:

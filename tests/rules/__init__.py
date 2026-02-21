@@ -1,1 +1,1 @@
-"""Tests for mercury-bot rules."""
+"""Tests for sergey rules."""

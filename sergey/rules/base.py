@@ -1,4 +1,4 @@
-"""Base abstractions for mercury-bot rules."""
+"""Base abstractions for sergey rules."""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -32,7 +32,7 @@ class Diagnostic:
 
 
 class Rule(ABC):
-    """Abstract base class for all mercury-bot rules."""
+    """Abstract base class for all sergey rules."""
 
     @abstractmethod
     def check(self, tree: ast.Module, source: str) -> list[Diagnostic]:

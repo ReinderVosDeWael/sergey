@@ -1,6 +1,6 @@
 # Rules
 
-This document defines every rule mercury-bot enforces. Each rule lists its rationale, the threshold chosen, and an explicit note on why it is not already covered by Ruff (`select = ["ALL"]`) or Ty.
+This document defines every rule sergey enforces. Each rule lists its rationale, the threshold chosen, and an explicit note on why it is not already covered by Ruff (`select = ["ALL"]`) or Ty.
 
 Rules are grouped into categories. All rules emit LSP `Warning` severity unless noted otherwise.
 

@@ -1,18 +1,18 @@
-"""pygls LSP server for mercury-bot."""
+"""pygls LSP server for sergey."""
 
 from lsprotocol import types
 from pygls.lsp.server import LanguageServer
 
-from mercury_bot.analyzer import Analyzer
-from mercury_bot.rules import ALL_RULES
-from mercury_bot.rules.base import Diagnostic, Severity
+from sergey.analyzer import Analyzer
+from sergey.rules import ALL_RULES
+from sergey.rules.base import Diagnostic, Severity
 
-server = LanguageServer("mercury-bot", "v0.1.0")
+server = LanguageServer("sergey", "v0.1.0")
 analyzer = Analyzer(rules=ALL_RULES)
 
 
 def _to_lsp(d: Diagnostic) -> types.Diagnostic:
-    """Convert a mercury-bot Diagnostic to an LSP Diagnostic."""
+    """Convert a sergey Diagnostic to an LSP Diagnostic."""
     severity_map = {
         Severity.ERROR: types.DiagnosticSeverity.Error,
         Severity.WARNING: types.DiagnosticSeverity.Warning,
@@ -26,7 +26,7 @@ def _to_lsp(d: Diagnostic) -> types.Diagnostic:
         ),
         message=f"{d.rule_id} {d.message}",
         severity=severity_map[d.severity],
-        source="mercury-bot",
+        source="sergey",
     )
 
 

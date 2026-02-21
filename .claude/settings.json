@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python .claude/hooks/mercury_bot_check.py",
+            "command": "python .claude/hooks/sergey_check.py",
             "timeout": 30
           }
         ]

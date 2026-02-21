@@ -1,5 +1,5 @@
 [project]
-name = "mercury-bot"
+name = "sergey"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -53,8 +53,12 @@ convention = "google"
     "D2",      # docstring formatting rules not relevant in tests
     "PLR2004", # magic values in assertions are fine in tests
 ]
-"mercury_bot/rules/*.py" = [
+"sergey/rules/*.py" = [
     "ARG002", # `source` is part of the Rule.check() interface; not all rules use it
+]
+".claude/hooks/*.py" = [
+    "S603",  # subprocess inputs are controlled (file paths from Claude Code)
+    "S607",  # partial path for `uv` is intentional
 ]
 "local/**/*" = ["ALL"]
 

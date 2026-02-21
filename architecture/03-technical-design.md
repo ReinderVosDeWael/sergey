@@ -14,8 +14,8 @@
 ## Project Structure
 
 ```
-mercury_bot/
-  __main__.py        # Entry point: `python -m mercury_bot [check <file>|serve]`
+sergey/
+  __main__.py        # Entry point: `python -m sergey [check <file>|serve]`
   server.py          # pygls LSP server, registers handlers
   analyzer.py        # Orchestrates rule execution against a parsed AST
   rules/
@@ -87,7 +87,7 @@ The server is minimal: it only implements the handlers needed for diagnostic pub
 
 ```python
 # server.py sketch
-server = LanguageServer("mercury-bot", "v0.1.0")
+server = LanguageServer("sergey", "v0.1.0")
 analyzer = Analyzer(rules=[...all rules...])
 
 @server.feature(TEXT_DOCUMENT_DID_OPEN)
@@ -102,7 +102,7 @@ def _publish(ls, text_document):
 
 ## CLI Mode
 
-`python -m mercury_bot check <file>` runs the analyzer and prints diagnostics to stdout in a human-readable format (matching Ruff's output style for consistency):
+`python -m sergey check <file>` runs the analyzer and prints diagnostics to stdout in a human-readable format (matching Ruff's output style for consistency):
 
 ```
 src/foo.py:12:4: CMX001 Function `process` exceeds maximum nesting depth of 4 (depth: 6)

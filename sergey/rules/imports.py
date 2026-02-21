@@ -2,7 +2,7 @@
 
 import ast
 
-from mercury_bot.rules.base import Diagnostic, Rule, Severity
+from sergey.rules.base import Diagnostic, Rule, Severity
 
 # Modules excluded from IMP001 — they are covered by IMP002 or are special syntax.
 _IMP001_EXCLUDED: frozenset[str] = frozenset({"__future__", "typing"})
