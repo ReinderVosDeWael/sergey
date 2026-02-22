@@ -24,7 +24,7 @@ def _is_submodule(parent: str, name: str) -> bool:
     """Return True if `parent.name` resolves to an importable module or package."""
     try:
         return importlib_util.find_spec(f"{parent}.{name}") is not None
-    except (ModuleNotFoundError, ValueError):
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -47,46 +47,43 @@ class IMP001(base.Rule):
     def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
         """Return a diagnostic for every non-typing from-import of a non-module name."""
         diagnostics: list[base.Diagnostic] = []
-        try:
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.ImportFrom):
-                    continue
-                module = node.module or ""
-                if module in _IMP001_EXCLUDED:
-                    continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            module = node.module or ""
+            if module in _IMP001_EXCLUDED:
+                continue
 
-                # For absolute imports, skip names that resolve to submodules.
-                if node.level == 0 and module:
-                    bad_aliases = [
-                        alias
-                        for alias in node.names
-                        if not _is_submodule(module, alias.name)
-                    ]
-                else:
-                    bad_aliases = list(node.names)
+            # For absolute imports, skip names that resolve to submodules.
+            if node.level == 0 and module:
+                bad_aliases = [
+                    alias
+                    for alias in node.names
+                    if not _is_submodule(module, alias.name)
+                ]
+            else:
+                bad_aliases = list(node.names)
 
-                if not bad_aliases:
-                    continue
+            if not bad_aliases:
+                continue
 
-                names = ", ".join(alias.name for alias in bad_aliases)
-                dots = "." * node.level
-                module_display = f"{dots}{module}" if module else dots
-                diagnostics.append(
-                    base.Diagnostic(
-                        rule_id="IMP001",
-                        message=(
-                            f"Import the module directly instead of importing"
-                            f" `{names}` from `{module_display}`"
-                        ),
-                        line=node.lineno,
-                        col=node.col_offset,
-                        end_line=node.end_lineno or node.lineno,
-                        end_col=node.end_col_offset or node.col_offset,
-                        severity=base.Severity.WARNING,
-                    )
+            names = ", ".join(alias.name for alias in bad_aliases)
+            dots = "." * node.level
+            module_display = f"{dots}{module}" if module else dots
+            diagnostics.append(
+                base.Diagnostic(
+                    rule_id="IMP001",
+                    message=(
+                        f"Import the module directly instead of importing"
+                        f" `{names}` from `{module_display}`"
+                    ),
+                    line=node.lineno,
+                    col=node.col_offset,
+                    end_line=node.end_lineno or node.lineno,
+                    end_col=node.end_col_offset or node.col_offset,
+                    severity=base.Severity.WARNING,
                 )
-        except Exception:  # noqa: BLE001, S110
-            pass
+            )
         return diagnostics
 
 
@@ -104,29 +101,26 @@ class IMP002(base.Rule):
     def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
         """Return a diagnostic for every from-import of a typing module."""
         diagnostics: list[base.Diagnostic] = []
-        try:
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.ImportFrom):
-                    continue
-                if node.module not in _TYPING_MODULES:
-                    continue
-                names = ", ".join(alias.name for alias in node.names)
-                diagnostics.append(
-                    base.Diagnostic(
-                        rule_id="IMP002",
-                        message=(
-                            f"Use `import {node.module}` instead of"
-                            f" importing `{names}` from `{node.module}`"
-                        ),
-                        line=node.lineno,
-                        col=node.col_offset,
-                        end_line=node.end_lineno or node.lineno,
-                        end_col=node.end_col_offset or node.col_offset,
-                        severity=base.Severity.WARNING,
-                    )
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if node.module not in _TYPING_MODULES:
+                continue
+            names = ", ".join(alias.name for alias in node.names)
+            diagnostics.append(
+                base.Diagnostic(
+                    rule_id="IMP002",
+                    message=(
+                        f"Use `import {node.module}` instead of"
+                        f" importing `{names}` from `{node.module}`"
+                    ),
+                    line=node.lineno,
+                    col=node.col_offset,
+                    end_line=node.end_lineno or node.lineno,
+                    end_col=node.end_col_offset or node.col_offset,
+                    severity=base.Severity.WARNING,
                 )
-        except Exception:  # noqa: BLE001, S110
-            pass
+            )
         return diagnostics
 
 
@@ -146,32 +140,29 @@ class IMP003(base.Rule):
     def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
         """Return a diagnostic for every dotted plain import."""
         diagnostics: list[base.Diagnostic] = []
-        try:
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Import):
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Import):
+                continue
+            for alias in node.names:
+                if "." not in alias.name:
                     continue
-                for alias in node.names:
-                    if "." not in alias.name:
-                        continue
-                    if alias.name in _IMP003_EXCLUDED:
-                        continue
-                    parent, _, name = alias.name.rpartition(".")
-                    diagnostics.append(
-                        base.Diagnostic(
-                            rule_id="IMP003",
-                            message=(
-                                f"Use `from {parent} import {name}`"
-                                f" instead of `import {alias.name}`"
-                            ),
-                            line=node.lineno,
-                            col=node.col_offset,
-                            end_line=node.end_lineno or node.lineno,
-                            end_col=node.end_col_offset or node.col_offset,
-                            severity=base.Severity.WARNING,
-                        )
+                if alias.name in _IMP003_EXCLUDED:
+                    continue
+                parent, _, name = alias.name.rpartition(".")
+                diagnostics.append(
+                    base.Diagnostic(
+                        rule_id="IMP003",
+                        message=(
+                            f"Use `from {parent} import {name}`"
+                            f" instead of `import {alias.name}`"
+                        ),
+                        line=node.lineno,
+                        col=node.col_offset,
+                        end_line=node.end_lineno or node.lineno,
+                        end_col=node.end_col_offset or node.col_offset,
+                        severity=base.Severity.WARNING,
                     )
-        except Exception:  # noqa: BLE001, S110
-            pass
+                )
         return diagnostics
 
 
@@ -189,27 +180,24 @@ class IMP004(base.Rule):
     def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
         """Return a diagnostic for every plain import of a collections module."""
         diagnostics: list[base.Diagnostic] = []
-        try:
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Import):
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Import):
+                continue
+            for alias in node.names:
+                if alias.name not in _COLLECTIONS_MODULES:
                     continue
-                for alias in node.names:
-                    if alias.name not in _COLLECTIONS_MODULES:
-                        continue
-                    diagnostics.append(
-                        base.Diagnostic(
-                            rule_id="IMP004",
-                            message=(
-                                f"Use `from {alias.name} import ...`"
-                                f" instead of `import {alias.name}`"
-                            ),
-                            line=node.lineno,
-                            col=node.col_offset,
-                            end_line=node.end_lineno or node.lineno,
-                            end_col=node.end_col_offset or node.col_offset,
-                            severity=base.Severity.WARNING,
-                        )
+                diagnostics.append(
+                    base.Diagnostic(
+                        rule_id="IMP004",
+                        message=(
+                            f"Use `from {alias.name} import ...`"
+                            f" instead of `import {alias.name}`"
+                        ),
+                        line=node.lineno,
+                        col=node.col_offset,
+                        end_line=node.end_lineno or node.lineno,
+                        end_col=node.end_col_offset or node.col_offset,
+                        severity=base.Severity.WARNING,
                     )
-        except Exception:  # noqa: BLE001, S110
-            pass
+                )
         return diagnostics

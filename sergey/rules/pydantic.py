@@ -131,71 +131,68 @@ class PDT001(base.Rule):
     def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
         """Return a diagnostic for every Pydantic model missing a frozen setting."""
         diagnostics: list[base.Diagnostic] = []
-        try:
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.ClassDef):
-                    continue
-                if not _is_pydantic_model(node):
-                    continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            if not _is_pydantic_model(node):
+                continue
 
-                config_value = _find_model_config(node)
+            config_value = _find_model_config(node)
 
-                if config_value is None:
-                    diagnostics.append(
-                        base.Diagnostic(
-                            rule_id="PDT001",
-                            message=(
-                                f"Pydantic model `{node.name}` has no `model_config`;"
-                                f" add `model_config = ConfigDict(frozen=...)`"
-                            ),
-                            line=node.lineno,
-                            col=node.col_offset,
-                            end_line=node.end_lineno or node.lineno,
-                            end_col=node.end_col_offset or node.col_offset,
-                            severity=base.Severity.WARNING,
-                        )
+            if config_value is None:
+                diagnostics.append(
+                    base.Diagnostic(
+                        rule_id="PDT001",
+                        message=(
+                            f"Pydantic model `{node.name}` has no `model_config`;"
+                            f" add `model_config = ConfigDict(frozen=...)`"
+                        ),
+                        line=node.lineno,
+                        col=node.col_offset,
+                        end_line=node.end_lineno or node.lineno,
+                        end_col=node.end_col_offset or node.col_offset,
+                        severity=base.Severity.WARNING,
                     )
-                elif not _is_config_dict_call(config_value):
-                    diagnostics.append(
-                        base.Diagnostic(
-                            rule_id="PDT001",
-                            message=(
-                                f"Pydantic model `{node.name}` `model_config` is not a"
-                                f" `ConfigDict(...)` call;"
-                                f" use `model_config = ConfigDict(frozen=...)`"
-                            ),
-                            line=config_value.lineno,
-                            col=config_value.col_offset,
-                            end_line=config_value.end_lineno or config_value.lineno,
-                            end_col=(
-                                config_value.end_col_offset or config_value.col_offset
-                            ),
-                            severity=base.Severity.WARNING,
-                        )
+                )
+            elif not _is_config_dict_call(config_value):
+                diagnostics.append(
+                    base.Diagnostic(
+                        rule_id="PDT001",
+                        message=(
+                            f"Pydantic model `{node.name}` `model_config` is not a"
+                            f" `ConfigDict(...)` call;"
+                            f" use `model_config = ConfigDict(frozen=...)`"
+                        ),
+                        line=config_value.lineno,
+                        col=config_value.col_offset,
+                        end_line=config_value.end_lineno or config_value.lineno,
+                        end_col=(
+                            config_value.end_col_offset or config_value.col_offset
+                        ),
+                        severity=base.Severity.WARNING,
                     )
-                elif (
-                    isinstance(config_value, ast.Call)
-                    and not _has_frozen_kwarg(config_value)
-                ):
-                    diagnostics.append(
-                        base.Diagnostic(
-                            rule_id="PDT001",
-                            message=(
-                                f"Pydantic model `{node.name}` `model_config` does not"
-                                f" set `frozen`; add `frozen=True` or `frozen=False`"
-                                f" explicitly"
-                            ),
-                            line=config_value.lineno,
-                            col=config_value.col_offset,
-                            end_line=config_value.end_lineno or config_value.lineno,
-                            end_col=(
-                                config_value.end_col_offset or config_value.col_offset
-                            ),
-                            severity=base.Severity.WARNING,
-                        )
+                )
+            elif (
+                isinstance(config_value, ast.Call)
+                and not _has_frozen_kwarg(config_value)
+            ):
+                diagnostics.append(
+                    base.Diagnostic(
+                        rule_id="PDT001",
+                        message=(
+                            f"Pydantic model `{node.name}` `model_config` does not"
+                            f" set `frozen`; add `frozen=True` or `frozen=False`"
+                            f" explicitly"
+                        ),
+                        line=config_value.lineno,
+                        col=config_value.col_offset,
+                        end_line=config_value.end_lineno or config_value.lineno,
+                        end_col=(
+                            config_value.end_col_offset or config_value.col_offset
+                        ),
+                        severity=base.Severity.WARNING,
                     )
-        except Exception:  # noqa: BLE001, S110
-            pass
+                )
         return diagnostics
 
 

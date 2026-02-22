@@ -138,11 +138,51 @@ class STR002(base.Rule):
 _DEFAULT_MAX_TRY_BODY: int = 4
 
 
+def _child_stmt_lists(node: ast.AST) -> list[list[ast.stmt]]:
+    """Return child statement lists of a compound statement node.
+
+    Used by ``_count_stmts`` to recurse into nested control flow without
+    crossing function or class scope boundaries.
+    """
+    if isinstance(node, (ast.If, ast.For, ast.AsyncFor, ast.While)):
+        return [node.body, node.orelse]
+    if isinstance(node, (ast.With, ast.AsyncWith)):
+        return [node.body]
+    if isinstance(node, ast.Try):
+        bodies: list[list[ast.stmt]] = [node.body, node.orelse, node.finalbody]
+        bodies.extend(handler.body for handler in node.handlers)
+        return bodies
+    if hasattr(ast, "TryStar") and isinstance(node, ast.TryStar):
+        ts_bodies: list[list[ast.stmt]] = [node.body, node.orelse, node.finalbody]
+        ts_bodies.extend(handler.body for handler in node.handlers)
+        return ts_bodies
+    if isinstance(node, ast.Match):
+        return [case.body for case in node.cases]
+    return []
+
+
+def _count_stmts(stmts: list[ast.stmt]) -> int:
+    """Count statements recursively, not descending into new scopes."""
+    total = 0
+    for stmt in stmts:
+        total += 1
+        if isinstance(stmt, _SCOPE_TYPES):
+            continue
+        for child_list in _child_stmt_lists(stmt):
+            total += _count_stmts(child_list)
+    return total
+
+
 class STR003(base.Rule):
     """Flag try blocks whose body contains too many statements.
 
     A large try body makes it hard to identify which operation can raise.
     Extract logic into helper functions to keep the guarded scope minimal.
+
+    Statements are counted recursively: an ``if`` with three branches
+    containing two statements each contributes 7 to the total (1 for the
+    ``if`` itself plus 6 for its contents). Nested functions and classes
+    reset the count and are not included.
 
     Only the ``try:`` body is counted — ``except`` and ``finally`` blocks
     are not subject to this rule.
@@ -157,11 +197,11 @@ class STR003(base.Rule):
 
     Flagged (default threshold):
         try:
-            a = step_one()
-            b = step_two(a)
-            c = step_three(b)
-            d = step_four(c)
-            e = step_five(d)    # 5th statement — flagged
+            for item in items:    # 1 (for) + 4 (body) = 5 — flagged
+                a = step_one()
+                b = step_two()
+                c = step_three()
+                d = step_four()
         except Exception:
             pass
     """
@@ -190,30 +230,34 @@ class STR003(base.Rule):
             return STR003(max_body_stmts=max_body_stmts)
         return self
 
+    def _check_try_node(self, node: ast.Try) -> list[base.Diagnostic]:
+        """Return a diagnostic if *node*'s body exceeds the statement limit."""
+        stmt_count = _count_stmts(node.body)
+        if stmt_count <= self._max_body_stmts:
+            return []
+        return [
+            base.Diagnostic(
+                rule_id="STR003",
+                message=(
+                    f"try body has {stmt_count} statements"
+                    f" (maximum {self._max_body_stmts});"
+                    f" extract logic to narrow the guarded scope"
+                ),
+                line=node.lineno,
+                col=node.col_offset,
+                end_line=node.end_lineno or node.lineno,
+                end_col=node.end_col_offset or node.col_offset,
+                severity=base.Severity.WARNING,
+            )
+        ]
+
     def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
         """Return a diagnostic for every try body exceeding the statement limit."""
         diagnostics: list[base.Diagnostic] = []
         try:
             for node in ast.walk(tree):
-                if not isinstance(node, ast.Try):
-                    continue
-                stmt_count = len(node.body)
-                if stmt_count > self._max_body_stmts:
-                    diagnostics.append(
-                        base.Diagnostic(
-                            rule_id="STR003",
-                            message=(
-                                f"try body has {stmt_count} statements"
-                                f" (maximum {self._max_body_stmts});"
-                                f" extract logic to narrow the guarded scope"
-                            ),
-                            line=node.lineno,
-                            col=node.col_offset,
-                            end_line=node.end_lineno or node.lineno,
-                            end_col=node.end_col_offset or node.col_offset,
-                            severity=base.Severity.WARNING,
-                        )
-                    )
+                if isinstance(node, ast.Try):
+                    diagnostics.extend(self._check_try_node(node))
         except Exception:  # noqa: BLE001, S110
             pass
         return diagnostics

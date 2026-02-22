@@ -89,33 +89,28 @@ class DOC001(base.Rule):
     def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
         """Return a diagnostic for each function missing a Raises section."""
         diagnostics: list[base.Diagnostic] = []
-        try:
-            for node in ast.walk(tree):
-                if not isinstance(
-                    node, (ast.FunctionDef, ast.AsyncFunctionDef)
-                ):
-                    continue
-                docstring = _get_docstring(node)
-                if docstring is None:
-                    continue
-                if not _has_explicit_raise(node):
-                    continue
-                if _has_raises_section(docstring):
-                    continue
-                diagnostics.append(
-                    base.Diagnostic(
-                        rule_id="DOC001",
-                        message=(
-                            f"Function `{node.name}` raises exceptions but its"
-                            f" docstring has no `Raises` section"
-                        ),
-                        line=node.lineno,
-                        col=node.col_offset,
-                        end_line=node.end_lineno or node.lineno,
-                        end_col=node.end_col_offset or node.col_offset,
-                        severity=base.Severity.WARNING,
-                    )
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            docstring = _get_docstring(node)
+            if docstring is None:
+                continue
+            if not _has_explicit_raise(node):
+                continue
+            if _has_raises_section(docstring):
+                continue
+            diagnostics.append(
+                base.Diagnostic(
+                    rule_id="DOC001",
+                    message=(
+                        f"Function `{node.name}` raises exceptions but its"
+                        f" docstring has no `Raises` section"
+                    ),
+                    line=node.lineno,
+                    col=node.col_offset,
+                    end_line=node.end_lineno or node.lineno,
+                    end_col=node.end_col_offset or node.col_offset,
+                    severity=base.Severity.WARNING,
                 )
-        except Exception:  # noqa: BLE001, S110
-            pass
+            )
         return diagnostics
