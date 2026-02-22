@@ -4,11 +4,15 @@ from lsprotocol import types
 from pygls.lsp import server as pygls_server
 
 from sergey import analyzer as sergey_analyzer
+from sergey import config as sergey_config
 from sergey import rules
 from sergey.rules import base
 
 server = pygls_server.LanguageServer("sergey", "v0.1.0")
-analyzer = sergey_analyzer.Analyzer(rules=rules.ALL_RULES)
+_cfg = sergey_config.load_config()
+analyzer = sergey_analyzer.Analyzer(
+    rules=sergey_config.filter_rules(rules.ALL_RULES, _cfg)
+)
 
 
 def _to_lsp(diag: base.Diagnostic) -> types.Diagnostic:

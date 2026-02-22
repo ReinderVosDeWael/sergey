@@ -1,4 +1,4 @@
-"""Pydantic rules: PDT001."""
+"""Pydantic rules: PDT001, PDT002."""
 
 import ast
 
@@ -44,6 +44,63 @@ def _is_config_dict_call(node: ast.expr) -> bool:
 def _has_frozen_kwarg(call: ast.Call) -> bool:
     """Return True if the call includes a `frozen` keyword argument."""
     return any(kw.arg == "frozen" for kw in call.keywords)
+
+
+def _is_frozen_true(call: ast.Call) -> bool:
+    """Return True if the ConfigDict call has `frozen=True`."""
+    for kw in call.keywords:
+        if kw.arg == "frozen":
+            return isinstance(kw.value, ast.Constant) and kw.value.value is True
+    return False
+
+
+def _is_class_var(annotation: ast.expr) -> bool:
+    """Return True if the annotation is or wraps ClassVar."""
+    if isinstance(annotation, ast.Name):
+        return annotation.id == "ClassVar"
+    if isinstance(annotation, ast.Attribute):
+        return annotation.attr == "ClassVar"
+    if isinstance(annotation, ast.Subscript):
+        return _is_class_var(annotation.value)
+    return False
+
+
+#: Type names that are mutable and therefore disallowed on frozen models.
+_MUTABLE_TYPES: frozenset[str] = frozenset({
+    # builtins
+    "list", "dict", "set", "bytearray",
+    # typing / typing_extensions capitalized aliases
+    "List", "Dict", "Set", "Deque", "DefaultDict", "OrderedDict",
+    # collections
+    "deque", "Counter", "defaultdict",
+    # collections.abc explicitly-mutable ABCs
+    "MutableSequence", "MutableMapping", "MutableSet",
+})
+
+
+def _mutable_types_in(annotation: ast.expr) -> list[str]:
+    """Return names of mutable types found anywhere in *annotation*.
+
+    Recurses into generic arguments, union syntax (``X | Y``), and
+    ``Annotated`` / ``Optional`` wrappers so that e.g.
+    ``Optional[list[str]]`` is still flagged.
+    """
+    if isinstance(annotation, ast.Name):
+        return [annotation.id] if annotation.id in _MUTABLE_TYPES else []
+    if isinstance(annotation, ast.Attribute):
+        return [annotation.attr] if annotation.attr in _MUTABLE_TYPES else []
+    if isinstance(annotation, ast.Subscript):
+        return _mutable_types_in(annotation.value) + _mutable_types_in(
+            annotation.slice
+        )
+    if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+        return _mutable_types_in(annotation.left) + _mutable_types_in(annotation.right)
+    if isinstance(annotation, ast.Tuple):
+        found: list[str] = []
+        for elt in annotation.elts:
+            found.extend(_mutable_types_in(elt))
+        return found
+    return []
 
 
 class PDT001(base.Rule):
@@ -137,6 +194,93 @@ class PDT001(base.Rule):
                             severity=base.Severity.WARNING,
                         )
                     )
+        except Exception:  # noqa: BLE001, S110
+            pass
+        return diagnostics
+
+
+def _check_frozen_field(
+    model_name: str,
+    stmt: ast.AnnAssign,
+) -> base.Diagnostic | None:
+    """Return a PDT002 diagnostic if stmt uses a mutable type, else None."""
+    if not isinstance(stmt.target, ast.Name) or stmt.target.id == "model_config":
+        return None
+    if stmt.annotation is None or _is_class_var(stmt.annotation):
+        return None
+    mutable = _mutable_types_in(stmt.annotation)
+    if not mutable:
+        return None
+    ann = stmt.annotation
+    return base.Diagnostic(
+        rule_id="PDT002",
+        message=(
+            f"Frozen model `{model_name}` field"
+            f" `{stmt.target.id}` uses mutable type"
+            f" `{mutable[0]}`; use an immutable alternative"
+            f" (e.g. `tuple` instead of `list`,"
+            f" `frozenset` instead of `set`)"
+        ),
+        line=ann.lineno,
+        col=ann.col_offset,
+        end_line=ann.end_lineno or ann.lineno,
+        end_col=ann.end_col_offset or ann.col_offset,
+        severity=base.Severity.WARNING,
+    )
+
+
+def _check_frozen_model(node: ast.ClassDef) -> list[base.Diagnostic]:
+    """Return PDT002 diagnostics for all mutable fields on a single frozen model."""
+    config_value = _find_model_config(node)
+    if not (
+        config_value is not None
+        and _is_config_dict_call(config_value)
+        and isinstance(config_value, ast.Call)
+        and _is_frozen_true(config_value)
+    ):
+        return []
+    diagnostics: list[base.Diagnostic] = []
+    for stmt in node.body:
+        if not isinstance(stmt, ast.AnnAssign):
+            continue
+        diag = _check_frozen_field(node.name, stmt)
+        if diag is not None:
+            diagnostics.append(diag)
+    return diagnostics
+
+
+class PDT002(base.Rule):
+    """Flag mutable field types on frozen Pydantic models.
+
+    When ``frozen=True``, every field annotation must use only immutable
+    types. Mutable containers like ``list``, ``dict``, and ``set`` violate
+    the immutability contract and should be replaced with their immutable
+    counterparts (``tuple``, ``frozenset``, a read-only mapping, etc.).
+
+    The check recurses into generic parameters and union syntax, so
+    ``Optional[list[str]]`` and ``str | list[int]`` are both caught.
+    ``ClassVar`` annotations are skipped because they are not model fields.
+
+    Allowed:
+        class Point(BaseModel):
+            model_config = ConfigDict(frozen=True)
+            coords: tuple[float, float]
+            tags: frozenset[str]
+
+    Flagged:
+        class Point(BaseModel):
+            model_config = ConfigDict(frozen=True)
+            coords: list[float]      # mutable
+            meta: dict[str, int]     # mutable
+    """
+
+    def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
+        """Return a diagnostic for every mutable field on a frozen model."""
+        diagnostics: list[base.Diagnostic] = []
+        try:
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef) and _is_pydantic_model(node):
+                    diagnostics.extend(_check_frozen_model(node))
         except Exception:  # noqa: BLE001, S110
             pass
         return diagnostics

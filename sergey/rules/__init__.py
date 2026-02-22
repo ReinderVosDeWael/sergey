@@ -11,6 +11,7 @@ ALL_RULES: list[base.Rule] = [
     naming.NAM002(),
     naming.NAM003(),
     pydantic.PDT001(),
+    pydantic.PDT002(),
     structure.STR002(),
 ]
 
