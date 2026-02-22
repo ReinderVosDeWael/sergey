@@ -28,7 +28,7 @@ class NAM001(base.Rule):
     """
 
     def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
-        """Return a diagnostic for every bool-returning function without a predicate name."""
+        """Flag bool-returning functions whose names lack a predicate prefix."""
         diagnostics: list[base.Diagnostic] = []
         try:
             for node in ast.walk(tree):
@@ -42,7 +42,9 @@ class NAM001(base.Rule):
                 # Strip leading underscores so private helpers like `_is_valid`
                 # are treated the same as their public equivalents.
                 public_name = name.lstrip("_")
-                if any(public_name.startswith(prefix) for prefix in _PREDICATE_PREFIXES):
+                if any(
+                    public_name.startswith(prefix) for prefix in _PREDICATE_PREFIXES
+                ):
                     continue
                 prefixes = ", ".join(sorted(_PREDICATE_PREFIXES))
                 diagnostics.append(
@@ -140,22 +142,22 @@ class NAM003(base.Rule):
                     *node.args.args,
                     *node.args.kwonlyargs,
                 ]
-                for arg in checked:
-                    if len(arg.arg) == 1 and arg.arg != "_":
-                        diagnostics.append(
-                            base.Diagnostic(
-                                rule_id="NAM003",
-                                message=(
-                                    f"Parameter name `{arg.arg}` is not descriptive;"
-                                    f" use a meaningful name"
-                                ),
-                                line=arg.lineno,
-                                col=arg.col_offset,
-                                end_line=arg.end_lineno or arg.lineno,
-                                end_col=arg.end_col_offset or arg.col_offset,
-                                severity=base.Severity.WARNING,
-                            )
-                        )
+                diagnostics.extend(
+                    base.Diagnostic(
+                        rule_id="NAM003",
+                        message=(
+                            f"Parameter name `{arg.arg}` is not descriptive;"
+                            f" use a meaningful name"
+                        ),
+                        line=arg.lineno,
+                        col=arg.col_offset,
+                        end_line=arg.end_lineno or arg.lineno,
+                        end_col=arg.end_col_offset or arg.col_offset,
+                        severity=base.Severity.WARNING,
+                    )
+                    for arg in checked
+                    if len(arg.arg) == 1 and arg.arg != "_"
+                )
         except Exception:  # noqa: BLE001, S110
             pass
         return diagnostics

@@ -68,7 +68,10 @@ def _apply_suppressions(
         for diag in diagnostics
         if not (
             (file_sup_active and _is_covered(file_sup_rules, diag.rule_id))
-            or (diag.line in line_sups and _is_covered(line_sups[diag.line], diag.rule_id))
+            or (
+                diag.line in line_sups
+                and _is_covered(line_sups[diag.line], diag.rule_id)
+            )
         )
     ]
 

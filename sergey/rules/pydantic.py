@@ -22,9 +22,12 @@ def _find_model_config(node: ast.ClassDef) -> ast.expr | None:
             for target in stmt.targets:
                 if isinstance(target, ast.Name) and target.id == "model_config":
                     return stmt.value
-        elif isinstance(stmt, ast.AnnAssign):
-            if isinstance(stmt.target, ast.Name) and stmt.target.id == "model_config":
-                return stmt.value  # None if declared without assignment
+        elif (
+            isinstance(stmt, ast.AnnAssign)
+            and isinstance(stmt.target, ast.Name)
+            and stmt.target.id == "model_config"
+        ):
+            return stmt.value  # None if declared without assignment
     return None
 
 
@@ -69,7 +72,7 @@ class PDT001(base.Rule):
     """
 
     def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
-        """Return a diagnostic for every Pydantic model missing an explicit frozen setting."""
+        """Return a diagnostic for every Pydantic model missing a frozen setting."""
         diagnostics: list[base.Diagnostic] = []
         try:
             for node in ast.walk(tree):
@@ -107,11 +110,16 @@ class PDT001(base.Rule):
                             line=config_value.lineno,
                             col=config_value.col_offset,
                             end_line=config_value.end_lineno or config_value.lineno,
-                            end_col=config_value.end_col_offset or config_value.col_offset,
+                            end_col=(
+                                config_value.end_col_offset or config_value.col_offset
+                            ),
                             severity=base.Severity.WARNING,
                         )
                     )
-                elif not _has_frozen_kwarg(config_value):
+                elif (
+                    isinstance(config_value, ast.Call)
+                    and not _has_frozen_kwarg(config_value)
+                ):
                     diagnostics.append(
                         base.Diagnostic(
                             rule_id="PDT001",
@@ -123,7 +131,9 @@ class PDT001(base.Rule):
                             line=config_value.lineno,
                             col=config_value.col_offset,
                             end_line=config_value.end_lineno or config_value.lineno,
-                            end_col=config_value.end_col_offset or config_value.col_offset,
+                            end_col=(
+                                config_value.end_col_offset or config_value.col_offset
+                            ),
                             severity=base.Severity.WARNING,
                         )
                     )

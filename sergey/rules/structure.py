@@ -15,7 +15,7 @@ _SCOPE_TYPES: tuple[type[ast.AST], ...] = (
 
 # ast.TryStar (try/except*) was added in Python 3.11.
 _TRY_STAR: tuple[type[ast.AST], ...] = (
-    (ast.TryStar,) if hasattr(ast, "TryStar") else ()  # type: ignore[attr-defined]
+    (ast.TryStar,) if hasattr(ast, "TryStar") else ()
 )
 
 _OTHER_NESTING: tuple[type[ast.AST], ...] = (
@@ -125,7 +125,7 @@ class STR002(base.Rule):
     """
 
     def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
-        """Return a diagnostic for every block that exceeds the maximum nesting depth."""
+        """Return a diagnostic for each block that exceeds the maximum nesting depth."""
         diagnostics: list[base.Diagnostic] = []
         try:
             for child in ast.iter_child_nodes(tree):
