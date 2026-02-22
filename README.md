@@ -48,6 +48,12 @@ The three rules together enforce a consistent import style: every name you use i
 | **NAM002** | Single-character variable names are disallowed in assignments, for-loops, comprehensions, with-statements, and walrus expressions. The conventional throwaway `_` is exempt. |
 | **NAM003** | Single-character function and method parameter names are disallowed. Covers positional-only, regular, and keyword-only parameters. `_`, `*args`, and `**kwargs` are exempt. Lambda parameters are not checked. |
 
+### Documentation
+
+| Rule | Description |
+|------|-------------|
+| **DOC001** | Functions that contain explicit `raise` statements must include a `Raises` section in their docstring. Bare re-raises (`raise` with no argument) are exempt. Raises inside nested functions or classes belong to those scopes and are not counted against the outer function. Functions with no docstring are not checked. Both Google style (`Raises:`) and NumPy style (`Raises` / `------`) are accepted. |
+
 ### Pydantic
 
 | Rule | Description |
