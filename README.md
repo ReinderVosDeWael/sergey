@@ -2,6 +2,9 @@
 
 A Python linter with opinionated rules about import style, naming, and code structure. Runs as a CLI tool or as an LSP server for editor integration.
 
+The primary intent of Sergey is to enforce my personal stylistic rules upon agentic code.
+However, you may also find these useful in standard development.
+
 ## Installation
 
 ```bash
@@ -32,38 +35,38 @@ Communicates over stdio using the Language Server Protocol. Configure your edito
 
 ### Imports
 
-| Rule | Description |
-|------|-------------|
+| Rule       | Description                                                                                                                                                                                            |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **IMP001** | `from module import name` is disallowed when `name` is not itself a submodule. Use `import module` and reference `module.name` at call sites. Typing modules and `__future__` are exempt (see IMP002). |
-| **IMP002** | `from typing import X` and `from typing_extensions import X` are disallowed. Use `import typing` and write `typing.X`. |
-| **IMP003** | Dotted plain imports (`import os.path`) are disallowed. Use `from os import path` instead. |
+| **IMP002** | `from typing import X` and `from typing_extensions import X` are disallowed. Use `import typing` and write `typing.X`.                                                                                 |
+| **IMP003** | Dotted plain imports (`import os.path`) are disallowed. Use `from os import path` instead.                                                                                                             |
 
 The three rules together enforce a consistent import style: every name you use is either a bare module you imported at the top level, or a submodule you accessed via `from package import submodule`.
 
 ### Naming
 
-| Rule | Description |
-|------|-------------|
+| Rule       | Description                                                                                                                                                                                                                         |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **NAM001** | Functions annotated `-> bool` must start with a predicate prefix: `is_`, `has_`, `can_`, `should_`, `will_`, `did_`, or `was_`. Dunder methods are exempt. Leading underscores on private helpers are ignored (`_is_valid` passes). |
-| **NAM002** | Single-character variable names are disallowed in assignments, for-loops, comprehensions, with-statements, and walrus expressions. The conventional throwaway `_` is exempt. |
-| **NAM003** | Single-character function and method parameter names are disallowed. Covers positional-only, regular, and keyword-only parameters. `_`, `*args`, and `**kwargs` are exempt. Lambda parameters are not checked. |
+| **NAM002** | Single-character variable names are disallowed in assignments, for-loops, comprehensions, with-statements, and walrus expressions. The conventional throwaway `_` is exempt.                                                        |
+| **NAM003** | Single-character function and method parameter names are disallowed. Covers positional-only, regular, and keyword-only parameters. `_`, `*args`, and `**kwargs` are exempt. Lambda parameters are not checked.                      |
 
 ### Documentation
 
-| Rule | Description |
-|------|-------------|
+| Rule       | Description                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **DOC001** | Functions that contain explicit `raise` statements must include a `Raises` section in their docstring. Bare re-raises (`raise` with no argument) are exempt. Raises inside nested functions or classes belong to those scopes and are not counted against the outer function. Functions with no docstring are not checked. Both Google style (`Raises:`) and NumPy style (`Raises` / `------`) are accepted. |
 
 ### Pydantic
 
-| Rule | Description |
-|------|-------------|
+| Rule       | Description                                                                                                                                                                                                                                                                          |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **PDT001** | Every `BaseModel` subclass must have `model_config = ConfigDict(frozen=...)` with `frozen` explicitly set. This forces a deliberate decision about mutability. Both `frozen=True` and `frozen=False` are accepted; omitting `frozen` or omitting `model_config` entirely is flagged. |
 
 ### Structure
 
-| Rule | Description |
-|------|-------------|
+| Rule       | Description                                                                                                                                                                                                                                                                                                          |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **STR002** | Control-flow blocks nested deeper than 4 levels are flagged. Counted constructs: `if`/`elif`/`else`, `for`, `while`, `with`, `try`, `match`. `elif` branches count at the same depth as their leading `if`. Function, class, and lambda definitions reset the counter, so nested functions are judged independently. |
 
 ## Suppression

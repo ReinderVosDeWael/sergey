@@ -1,15 +1,23 @@
-"""Import-style rules: IMP001, IMP002, and IMP003."""
+"""Import-style rules: IMP001, IMP002, IMP003, and IMP004."""
 
 import ast
 from importlib import util as importlib_util
 
 from sergey.rules import base
 
-# Modules excluded from IMP001 — they are covered by IMP002 or are special syntax.
-_IMP001_EXCLUDED: frozenset[str] = frozenset({"__future__", "typing"})
+# Modules excluded from IMP001 — covered by IMP002/IMP004 or are special syntax.
+_IMP001_EXCLUDED: frozenset[str] = frozenset(
+    {"__future__", "typing", "collections.abc"}
+)
 
 # Typing modules covered by IMP002.
 _TYPING_MODULES: frozenset[str] = frozenset({"typing", "typing_extensions"})
+
+# Modules excluded from IMP003 — they are covered by a more specific rule.
+_IMP003_EXCLUDED: frozenset[str] = frozenset({"collections.abc"})
+
+# Collections modules covered by IMP004.
+_COLLECTIONS_MODULES: frozenset[str] = frozenset({"collections.abc"})
 
 
 def _is_submodule(parent: str, name: str) -> bool:
@@ -145,12 +153,54 @@ class IMP003(base.Rule):
                 for alias in node.names:
                     if "." not in alias.name:
                         continue
+                    if alias.name in _IMP003_EXCLUDED:
+                        continue
                     parent, _, name = alias.name.rpartition(".")
                     diagnostics.append(
                         base.Diagnostic(
                             rule_id="IMP003",
                             message=(
                                 f"Use `from {parent} import {name}`"
+                                f" instead of `import {alias.name}`"
+                            ),
+                            line=node.lineno,
+                            col=node.col_offset,
+                            end_line=node.end_lineno or node.lineno,
+                            end_col=node.end_col_offset or node.col_offset,
+                            severity=base.Severity.WARNING,
+                        )
+                    )
+        except Exception:  # noqa: BLE001, S110
+            pass
+        return diagnostics
+
+
+class IMP004(base.Rule):
+    """Flag plain imports of collections.abc; require from-imports instead.
+
+    Allowed:
+        from collections.abc import Mapping
+        from collections.abc import Callable, Sequence
+
+    Flagged:
+        import collections.abc
+    """
+
+    def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
+        """Return a diagnostic for every plain import of a collections module."""
+        diagnostics: list[base.Diagnostic] = []
+        try:
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Import):
+                    continue
+                for alias in node.names:
+                    if alias.name not in _COLLECTIONS_MODULES:
+                        continue
+                    diagnostics.append(
+                        base.Diagnostic(
+                            rule_id="IMP004",
+                            message=(
+                                f"Use `from {alias.name} import ...`"
                                 f" instead of `import {alias.name}`"
                             ),
                             line=node.lineno,

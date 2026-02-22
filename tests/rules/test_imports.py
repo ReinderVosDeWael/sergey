@@ -1,4 +1,4 @@
-"""Tests for IMP001, IMP002, and IMP003 import-style rules."""
+"""Tests for IMP001, IMP002, IMP003, and IMP004 import-style rules."""
 
 import ast
 import textwrap
@@ -19,6 +19,11 @@ def _check_imp002(source: str) -> list[str]:
 def _check_imp003(source: str) -> list[str]:
     tree = ast.parse(textwrap.dedent(source))
     return [diag.rule_id for diag in imports.IMP003().check(tree, source)]
+
+
+def _check_imp004(source: str) -> list[str]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.rule_id for diag in imports.IMP004().check(tree, source)]
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +82,10 @@ class TestIMP001:
     def test_typing_import_excluded(self) -> None:
         # typing is covered by IMP002, not IMP001
         assert _check_imp001("from typing import Optional") == []
+
+    def test_collections_abc_import_excluded(self) -> None:
+        # collections.abc is covered by IMP004, not IMP001
+        assert _check_imp001("from collections.abc import Mapping") == []
 
     def test_relative_import_with_module_flagged(self) -> None:
         assert _check_imp001("from .utils import Helper") == ["IMP001"]
@@ -215,3 +224,50 @@ class TestIMP003:
         tree = ast.parse(source)
         diags = imports.IMP003().check(tree, source)
         assert diags[0].rule_id == "IMP003"
+
+    def test_collections_abc_excluded(self) -> None:
+        # collections.abc is covered by IMP004, not IMP003
+        assert _check_imp003("import collections.abc") == []
+
+
+# ---------------------------------------------------------------------------
+# IMP004 — collections.abc plain imports
+# ---------------------------------------------------------------------------
+
+
+class TestIMP004:
+    def test_from_collections_abc_ok(self) -> None:
+        assert _check_imp004("from collections.abc import Mapping") == []
+
+    def test_from_collections_abc_multiple_names_ok(self) -> None:
+        assert _check_imp004("from collections.abc import Callable, Sequence") == []
+
+    def test_import_collections_not_flagged(self) -> None:
+        assert _check_imp004("import collections") == []
+
+    def test_import_collections_abc_flagged(self) -> None:
+        assert _check_imp004("import collections.abc") == ["IMP004"]
+
+    def test_diagnostic_message(self) -> None:
+        source = "import collections.abc"
+        tree = ast.parse(source)
+        diags = imports.IMP004().check(tree, source)
+        assert len(diags) == 1
+        assert "from collections.abc import ..." in diags[0].message
+        assert "import collections.abc" in diags[0].message
+
+    def test_diagnostic_line_number(self) -> None:
+        source = textwrap.dedent("""\
+            import os
+            import collections.abc
+        """)
+        tree = ast.parse(source)
+        diags = imports.IMP004().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].line == 2
+
+    def test_rule_id(self) -> None:
+        source = "import collections.abc"
+        tree = ast.parse(source)
+        diags = imports.IMP004().check(tree, source)
+        assert diags[0].rule_id == "IMP004"
