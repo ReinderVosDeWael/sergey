@@ -48,6 +48,12 @@ The three rules together enforce a consistent import style: every name you use i
 | **NAM002** | Single-character variable names are disallowed in assignments, for-loops, comprehensions, with-statements, and walrus expressions. The conventional throwaway `_` is exempt. |
 | **NAM003** | Single-character function and method parameter names are disallowed. Covers positional-only, regular, and keyword-only parameters. `_`, `*args`, and `**kwargs` are exempt. Lambda parameters are not checked. |
 
+### Pydantic
+
+| Rule | Description |
+|------|-------------|
+| **PDT001** | Every `BaseModel` subclass must have `model_config = ConfigDict(frozen=...)` with `frozen` explicitly set. This forces a deliberate decision about mutability. Both `frozen=True` and `frozen=False` are accepted; omitting `frozen` or omitting `model_config` entirely is flagged. |
+
 ### Structure
 
 | Rule | Description |

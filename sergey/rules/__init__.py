@@ -1,6 +1,6 @@
 """All sergey rules."""
 
-from sergey.rules import base, imports, naming, structure
+from sergey.rules import base, imports, naming, pydantic, structure
 
 ALL_RULES: list[base.Rule] = [
     imports.IMP001(),
@@ -9,6 +9,7 @@ ALL_RULES: list[base.Rule] = [
     naming.NAM001(),
     naming.NAM002(),
     naming.NAM003(),
+    pydantic.PDT001(),
     structure.STR002(),
 ]
 
