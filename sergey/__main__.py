@@ -1,6 +1,6 @@
 """Entry point: sergey [check <path>... | serve]."""
 
-import pathlib  # noqa: TC003
+import pathlib
 import typing
 
 import typer
@@ -22,12 +22,73 @@ def _collect_python_files(root: pathlib.Path) -> list[pathlib.Path]:
     )
 
 
+def _git_diff_python_files() -> list[pathlib.Path]:
+    """Return .py files changed relative to HEAD in the current git repository.
+
+    Returns an empty list when git is unavailable or the directory is not a
+    git repository.
+    """
+    import subprocess  # noqa: PLC0415
+
+    try:
+        root_proc = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        diff_proc = subprocess.run(
+            ["git", "diff", "--name-only", "--diff-filter=ACMR", "HEAD"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return []
+    if root_proc.returncode != 0 or diff_proc.returncode != 0:
+        return []
+    git_root = pathlib.Path(root_proc.stdout.strip())
+    return [
+        git_root / line
+        for line in diff_proc.stdout.splitlines()
+        if line.endswith(".py")
+    ]
+
+
+def _resolve_files(
+    paths: list[pathlib.Path],
+    *,
+    diff: bool,
+) -> list[pathlib.Path]:
+    """Expand paths and optionally the git diff into a deduplicated .py file list."""
+    candidates: list[pathlib.Path] = []
+    if diff:
+        candidates.extend(_git_diff_python_files())
+    for raw_path in paths:
+        if raw_path.is_dir():
+            candidates.extend(_collect_python_files(raw_path))
+        else:
+            candidates.append(raw_path)
+    seen: set[pathlib.Path] = set()
+    unique: list[pathlib.Path] = []
+    for file_path in candidates:
+        resolved = file_path.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            unique.append(file_path)
+    return unique
+
+
 @app.command(no_args_is_help=True)
 def check(
     paths: typing.Annotated[
         list[pathlib.Path],
         typer.Argument(help="Files or directories to check."),
-    ],
+    ] = [],  # noqa: B006
+    diff: typing.Annotated[  # noqa: FBT002
+        bool,
+        typer.Option("--diff", help="Check .py files changed in the current git diff."),
+    ] = False,
 ) -> None:
     """Check one or more files/directories for rule violations.
 
@@ -38,13 +99,7 @@ def check(
     from sergey import config as sergey_config  # noqa: PLC0415
     from sergey import rules  # noqa: PLC0415
 
-    python_files: list[pathlib.Path] = []
-    for raw_path in paths:
-        if raw_path.is_dir():
-            python_files.extend(_collect_python_files(raw_path))
-        else:
-            python_files.append(raw_path)
-
+    python_files = _resolve_files(paths, diff=diff)
     cfg = sergey_config.load_config()
     active_rules = sergey_config.filter_rules(rules.ALL_RULES, cfg)
     active_rules = sergey_config.configure_rules(active_rules, cfg)
