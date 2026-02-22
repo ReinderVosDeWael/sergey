@@ -1,5 +1,7 @@
 """Load sergey configuration from pyproject.toml."""
 
+from __future__ import annotations
+
 import dataclasses
 import pathlib
 import tomllib

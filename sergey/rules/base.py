@@ -1,5 +1,7 @@
 """Base abstractions for sergey rules."""
 
+from __future__ import annotations
+
 import abc
 import dataclasses
 import enum

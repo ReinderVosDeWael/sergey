@@ -56,7 +56,7 @@ def _git_diff_python_files() -> list[pathlib.Path]:
 
 
 def _resolve_files(
-    paths: list[pathlib.Path],
+    paths: list[pathlib.Path] | None,
     *,
     diff: bool,
 ) -> list[pathlib.Path]:
@@ -64,7 +64,7 @@ def _resolve_files(
     candidates: list[pathlib.Path] = []
     if diff:
         candidates.extend(_git_diff_python_files())
-    for raw_path in paths:
+    for raw_path in paths or []:
         if raw_path.is_dir():
             candidates.extend(_collect_python_files(raw_path))
         else:
@@ -82,9 +82,9 @@ def _resolve_files(
 @app.command(no_args_is_help=True)
 def check(
     paths: typing.Annotated[
-        list[pathlib.Path],
+        list[pathlib.Path] | None,
         typer.Argument(help="Files or directories to check."),
-    ] = [],  # noqa: B006
+    ] = None,
     diff: typing.Annotated[  # noqa: FBT002
         bool,
         typer.Option("--diff", help="Check .py files changed in the current git diff."),

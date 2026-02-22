@@ -1,13 +1,10 @@
 """Tests for sergey.config: load_config and filter_rules."""
 
-import typing
+import pathlib
 
 from sergey import analyzer as sergey_analyzer
 from sergey import config as sergey_config
 from sergey.rules import imports, naming, pydantic, structure
-
-if typing.TYPE_CHECKING:
-    import pathlib
 
 # ---------------------------------------------------------------------------
 # Helpers
