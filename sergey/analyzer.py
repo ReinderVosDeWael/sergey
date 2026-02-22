@@ -34,7 +34,7 @@ def _rule_ids(raw: str | None) -> frozenset[str] | None:
     return ids or None
 
 
-def _covers(suppressed: frozenset[str] | None, rule_id: str) -> bool:
+def _is_covered(suppressed: frozenset[str] | None, rule_id: str) -> bool:
     """Return True if rule_id falls within the suppression set.
 
     None means all rules are suppressed.
@@ -67,8 +67,8 @@ def _apply_suppressions(
         diag
         for diag in diagnostics
         if not (
-            (file_sup_active and _covers(file_sup_rules, diag.rule_id))
-            or (diag.line in line_sups and _covers(line_sups[diag.line], diag.rule_id))
+            (file_sup_active and _is_covered(file_sup_rules, diag.rule_id))
+            or (diag.line in line_sups and _is_covered(line_sups[diag.line], diag.rule_id))
         )
     ]
 
