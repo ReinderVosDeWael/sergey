@@ -1,15 +1,11 @@
 """Entry point: sergey [check <path>... | serve]."""
 
-import pathlib
-import sys
+import pathlib  # noqa: TC003
+import typing
 
-from sergey import analyzer as sergey_analyzer
-from sergey import config as sergey_config
-from sergey import rules
+import typer
 
-_USAGE = "Usage: sergey [check <path>... | serve]"
-_MIN_ARGS = 2
-_CHECK_MIN_ARGS = 3
+app = typer.Typer()
 
 # Directories that are never interesting to analyse.
 _SKIP_DIRS: frozenset[str] = frozenset(
@@ -26,11 +22,24 @@ def _collect_python_files(root: pathlib.Path) -> list[pathlib.Path]:
     )
 
 
-def _run_check(paths: list[str]) -> None:
-    """Check one or more files/directories and exit with appropriate code."""
+@app.command(no_args_is_help=True)
+def check(
+    paths: typing.Annotated[
+        list[pathlib.Path],
+        typer.Argument(help="Files or directories to check."),
+    ],
+) -> None:
+    """Check one or more files/directories for rule violations.
+
+    Raises:
+        typer.Exit: With code 1 if any violations are found.
+    """
+    from sergey import analyzer as sergey_analyzer  # noqa: PLC0415
+    from sergey import config as sergey_config  # noqa: PLC0415
+    from sergey import rules  # noqa: PLC0415
+
     python_files: list[pathlib.Path] = []
-    for raw in paths:
-        raw_path = pathlib.Path(raw)
+    for raw_path in paths:
         if raw_path.is_dir():
             python_files.extend(_collect_python_files(raw_path))
         else:
@@ -45,43 +54,32 @@ def _run_check(paths: list[str]) -> None:
         try:
             source = file_path.read_text()
         except OSError as e:
-            sys.stderr.write(f"error: {e}\n")
+            typer.echo(f"error: {e}", err=True)
             continue
 
         diagnostics = analyzer.analyze(source)
         for diag in diagnostics:
-            sys.stdout.write(
-                f"{file_path}:{diag.line}:{diag.col}: {diag.rule_id} {diag.message}\n"
+            typer.echo(
+                f"{file_path}:{diag.line}:{diag.col}: {diag.rule_id} {diag.message}"
             )
         if diagnostics:
             found_any = True
 
-    sys.exit(1 if found_any else 0)
+    if found_any:
+        raise typer.Exit(code=1)
+
+
+@app.command(no_args_is_help=True)
+def serve() -> None:
+    """Run the LSP server over stdio."""
+    from sergey import server  # noqa: PLC0415
+
+    server.start()
 
 
 def main() -> None:
     """Dispatch to CLI check mode or LSP server mode."""
-    if len(sys.argv) < _MIN_ARGS:
-        sys.stderr.write(_USAGE + "\n")
-        sys.exit(2)
-
-    command = sys.argv[1]
-
-    if command == "serve":
-        from sergey import server  # noqa: PLC0415
-
-        server.start()
-
-    elif command == "check":
-        if len(sys.argv) < _CHECK_MIN_ARGS:
-            sys.stderr.write("Usage: sergey check <path>...\n")
-            sys.exit(2)
-
-        _run_check(sys.argv[2:])
-
-    else:
-        sys.stderr.write(f"Unknown command: {command!r}\n")
-        sys.exit(2)
+    app()
 
 
 if __name__ == "__main__":
