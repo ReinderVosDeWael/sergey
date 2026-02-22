@@ -47,6 +47,7 @@ def check(
 
     cfg = sergey_config.load_config()
     active_rules = sergey_config.filter_rules(rules.ALL_RULES, cfg)
+    active_rules = sergey_config.configure_rules(active_rules, cfg)
     analyzer = sergey_analyzer.Analyzer(rules=active_rules)
     found_any = False
 

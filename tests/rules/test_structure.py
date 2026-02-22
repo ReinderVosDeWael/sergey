@@ -1,4 +1,4 @@
-"""Tests for STR002 structure rules."""
+"""Tests for STR002 and STR003 structure rules."""
 
 import ast
 import textwrap
@@ -9,6 +9,11 @@ from sergey.rules import structure
 def _check_str002(source: str) -> list[str]:
     tree = ast.parse(textwrap.dedent(source))
     return [diag.rule_id for diag in structure.STR002().check(tree, source)]
+
+
+def _check_str003(source: str, **kwargs: int) -> list[str]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.rule_id for diag in structure.STR003(**kwargs).check(tree, source)]
 
 
 # ---------------------------------------------------------------------------
@@ -284,3 +289,214 @@ class TestSTR002:
         diags = structure.STR002().check(tree, source)
         assert "5" in diags[0].message
         assert "4" in diags[0].message  # mentions the maximum too
+
+
+# ---------------------------------------------------------------------------
+# STR003 — long try bodies
+# ---------------------------------------------------------------------------
+
+
+class TestSTR003:
+    # ------------------------------------------------------------------
+    # Within-limit cases (no diagnostic expected)
+    # ------------------------------------------------------------------
+
+    def test_empty_try_ok(self) -> None:
+        assert _check_str003("try:\n    pass\nexcept Exception:\n    pass") == []
+
+    def test_four_stmts_ok(self) -> None:
+        source = """\
+            try:
+                a = 1
+                b = 2
+                c = 3
+                d = 4
+            except Exception:
+                pass
+        """
+        assert _check_str003(source) == []
+
+    def test_long_except_not_flagged(self) -> None:
+        # except block length is irrelevant — only the try body counts
+        source = """\
+            try:
+                result = fetch()
+            except Exception:
+                a = 1
+                b = 2
+                c = 3
+                d = 4
+                e = 5
+                f = 6
+        """
+        assert _check_str003(source) == []
+
+    def test_long_finally_not_flagged(self) -> None:
+        source = """\
+            try:
+                result = fetch()
+            except Exception:
+                pass
+            finally:
+                a = 1
+                b = 2
+                c = 3
+                d = 4
+                e = 5
+        """
+        assert _check_str003(source) == []
+
+    def test_custom_threshold_below_ok(self) -> None:
+        source = """\
+            try:
+                a = 1
+                b = 2
+            except Exception:
+                pass
+        """
+        assert _check_str003(source, max_body_stmts=2) == []
+
+    # ------------------------------------------------------------------
+    # Over-limit cases (diagnostic expected)
+    # ------------------------------------------------------------------
+
+    def test_five_stmts_flagged(self) -> None:
+        source = """\
+            try:
+                a = 1
+                b = 2
+                c = 3
+                d = 4
+                e = 5
+            except Exception:
+                pass
+        """
+        assert _check_str003(source) == ["STR003"]
+
+    def test_six_stmts_flagged(self) -> None:
+        source = """\
+            try:
+                a = 1
+                b = 2
+                c = 3
+                d = 4
+                e = 5
+                f = 6
+            except Exception:
+                pass
+        """
+        assert _check_str003(source) == ["STR003"]
+
+    def test_two_try_blocks_both_long(self) -> None:
+        source = """\
+            try:
+                a = 1
+                b = 2
+                c = 3
+                d = 4
+                e = 5
+            except Exception:
+                pass
+            try:
+                a = 1
+                b = 2
+                c = 3
+                d = 4
+                e = 5
+            except Exception:
+                pass
+        """
+        assert _check_str003(source) == ["STR003", "STR003"]
+
+    def test_custom_threshold_exceeded(self) -> None:
+        source = """\
+            try:
+                a = 1
+                b = 2
+                c = 3
+            except Exception:
+                pass
+        """
+        assert _check_str003(source, max_body_stmts=2) == ["STR003"]
+
+    # ------------------------------------------------------------------
+    # Diagnostic metadata
+    # ------------------------------------------------------------------
+
+    def test_rule_id(self) -> None:
+        source = textwrap.dedent("""\
+            try:
+                a = 1
+                b = 2
+                c = 3
+                d = 4
+                e = 5
+            except Exception:
+                pass
+        """)
+        tree = ast.parse(source)
+        diags = structure.STR003().check(tree, source)
+        assert diags[0].rule_id == "STR003"
+
+    def test_diagnostic_line_points_to_try(self) -> None:
+        source = textwrap.dedent("""\
+            x = 0
+            try:
+                a = 1
+                b = 2
+                c = 3
+                d = 4
+                e = 5
+            except Exception:
+                pass
+        """)
+        tree = ast.parse(source)
+        diags = structure.STR003().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].line == 2  # the `try:` line
+
+    def test_diagnostic_message_contains_counts(self) -> None:
+        source = textwrap.dedent("""\
+            try:
+                a = 1
+                b = 2
+                c = 3
+                d = 4
+                e = 5
+            except Exception:
+                pass
+        """)
+        tree = ast.parse(source)
+        diags = structure.STR003().check(tree, source)
+        assert "5" in diags[0].message   # actual count
+        assert "4" in diags[0].message   # maximum allowed
+
+    def test_configure_changes_threshold(self) -> None:
+        rule = structure.STR003()
+        configured = rule.configure({"max_body_stmts": 2})
+        source = textwrap.dedent("""\
+            try:
+                a = 1
+                b = 2
+                c = 3
+            except Exception:
+                pass
+        """)
+        tree = ast.parse(source)
+        assert len(configured.check(tree, source)) == 1
+
+    def test_configure_unknown_option_returns_same_behaviour(self) -> None:
+        rule = structure.STR003()
+        configured = rule.configure({"unknown_option": 99})
+        source = textwrap.dedent("""\
+            try:
+                a = 1
+                b = 2
+                c = 3
+                d = 4
+                e = 5
+            except Exception:
+                pass
+        """)
+        tree = ast.parse(source)
+        assert configured.check(tree, source) == rule.check(tree, source)

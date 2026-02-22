@@ -4,7 +4,7 @@ import typing
 
 from sergey import analyzer as sergey_analyzer
 from sergey import config as sergey_config
-from sergey.rules import imports, naming, pydantic
+from sergey.rules import imports, naming, pydantic, structure
 
 if typing.TYPE_CHECKING:
     import pathlib
@@ -201,3 +201,82 @@ class TestFilterIntegration:
         az = sergey_analyzer.Analyzer(rules=active)
         diag_ids = [diag.rule_id for diag in az.analyze("x = 1")]
         assert diag_ids == ["NAM002"]
+
+
+# ---------------------------------------------------------------------------
+# load_config — rule_options
+# ---------------------------------------------------------------------------
+
+
+class TestLoadConfigRuleOptions:
+    def test_no_rules_section_returns_empty_options(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text("[tool.sergey]\n")
+        cfg = sergey_config.load_config(tmp_path)
+        assert cfg.rule_options == {}
+
+    def test_rule_options_loaded(self, tmp_path: pathlib.Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            "[tool.sergey.rules.STR003]\nmax_body_stmts = 2\n"
+        )
+        cfg = sergey_config.load_config(tmp_path)
+        assert cfg.rule_options == {"STR003": {"max_body_stmts": 2}}
+
+    def test_rule_id_normalised_to_uppercase(self, tmp_path: pathlib.Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            "[tool.sergey.rules.str003]\nmax_body_stmts = 3\n"
+        )
+        cfg = sergey_config.load_config(tmp_path)
+        assert "STR003" in cfg.rule_options
+
+    def test_non_scalar_option_values_ignored(self, tmp_path: pathlib.Path) -> None:
+        # Lists and dicts are not valid option values and should be dropped.
+        (tmp_path / "pyproject.toml").write_text(
+            "[tool.sergey.rules.STR003]\nmax_body_stmts = 2\nbad = [1, 2, 3]\n"
+        )
+        cfg = sergey_config.load_config(tmp_path)
+        assert cfg.rule_options["STR003"] == {"max_body_stmts": 2}
+
+
+# ---------------------------------------------------------------------------
+# configure_rules
+# ---------------------------------------------------------------------------
+
+
+class TestConfigureRules:
+    def test_no_options_returns_same_rules(self) -> None:
+        cfg = sergey_config.Config(select=None, ignore=frozenset())
+        rules = [structure.STR003()]
+        result = sergey_config.configure_rules(rules, cfg)
+        assert result == rules
+
+    def test_options_applied_to_matching_rule(self) -> None:
+        cfg = sergey_config.Config(
+            select=None,
+            ignore=frozenset(),
+            rule_options={"STR003": {"max_body_stmts": 2}},
+        )
+        original = structure.STR003()
+        result = sergey_config.configure_rules([original], cfg)
+        assert len(result) == 1
+        # The configured rule uses the new threshold
+        source = "try:\n    a=1\n    b=2\n    c=3\nexcept Exception:\n    pass\n"
+        import ast  # noqa: PLC0415
+        tree = ast.parse(source)
+        assert len(result[0].check(tree, source)) == 1
+        assert len(original.check(tree, source)) == 0
+
+    def test_options_not_applied_to_other_rules(self) -> None:
+        cfg = sergey_config.Config(
+            select=None,
+            ignore=frozenset(),
+            rule_options={"STR003": {"max_body_stmts": 2}},
+        )
+        imp_rule = imports.IMP001()
+        result = sergey_config.configure_rules([imp_rule], cfg)
+        assert result == [imp_rule]
+
+    def test_empty_rules_list(self) -> None:
+        cfg = sergey_config.Config(select=None, ignore=frozenset())
+        assert sergey_config.configure_rules([], cfg) == []

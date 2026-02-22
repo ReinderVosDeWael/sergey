@@ -1,4 +1,4 @@
-"""Structure rules: STR002."""
+"""Structure rules: STR002, STR003."""
 
 import ast
 
@@ -130,6 +130,90 @@ class STR002(base.Rule):
         try:
             for child in ast.iter_child_nodes(tree):
                 _dispatch(child, 0, diagnostics)
+        except Exception:  # noqa: BLE001, S110
+            pass
+        return diagnostics
+
+
+_DEFAULT_MAX_TRY_BODY: int = 4
+
+
+class STR003(base.Rule):
+    """Flag try blocks whose body contains too many statements.
+
+    A large try body makes it hard to identify which operation can raise.
+    Extract logic into helper functions to keep the guarded scope minimal.
+
+    Only the ``try:`` body is counted — ``except`` and ``finally`` blocks
+    are not subject to this rule.
+
+    Default maximum: 4 statements (5 or more is flagged).
+
+    Allowed:
+        try:
+            result = fetch(url)
+        except RequestError:
+            handle()
+
+    Flagged (default threshold):
+        try:
+            a = step_one()
+            b = step_two(a)
+            c = step_three(b)
+            d = step_four(c)
+            e = step_five(d)    # 5th statement — flagged
+        except Exception:
+            pass
+    """
+
+    def __init__(self, max_body_stmts: int = _DEFAULT_MAX_TRY_BODY) -> None:
+        """Initialise with the maximum allowed number of statements in a try body.
+
+        Args:
+            max_body_stmts: Maximum number of statements allowed in the try body
+                before a diagnostic is emitted.
+        """
+        self._max_body_stmts = max_body_stmts
+
+    def configure(self, options: dict[str, int | str | bool]) -> base.Rule:
+        """Return a new STR003 with options applied.
+
+        Args:
+            options: Recognises ``max_body_stmts`` (int).
+
+        Returns:
+            A new STR003 instance with the configured threshold, or self if
+            the option is absent or not an integer.
+        """
+        max_body_stmts = options.get("max_body_stmts", self._max_body_stmts)
+        if isinstance(max_body_stmts, int):
+            return STR003(max_body_stmts=max_body_stmts)
+        return self
+
+    def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
+        """Return a diagnostic for every try body exceeding the statement limit."""
+        diagnostics: list[base.Diagnostic] = []
+        try:
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Try):
+                    continue
+                stmt_count = len(node.body)
+                if stmt_count > self._max_body_stmts:
+                    diagnostics.append(
+                        base.Diagnostic(
+                            rule_id="STR003",
+                            message=(
+                                f"try body has {stmt_count} statements"
+                                f" (maximum {self._max_body_stmts});"
+                                f" extract logic to narrow the guarded scope"
+                            ),
+                            line=node.lineno,
+                            col=node.col_offset,
+                            end_line=node.end_lineno or node.lineno,
+                            end_col=node.end_col_offset or node.col_offset,
+                            severity=base.Severity.WARNING,
+                        )
+                    )
         except Exception:  # noqa: BLE001, S110
             pass
         return diagnostics

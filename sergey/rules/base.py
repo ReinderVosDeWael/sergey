@@ -46,3 +46,17 @@ class Rule(abc.ABC):
             A list of Diagnostic instances. Returns an empty list if no issues
             are found or if an internal error occurs.
         """
+
+    def configure(self, options: dict[str, int | str | bool]) -> Rule:
+        """Return a new Rule with the given options applied.
+
+        The default implementation ignores *options* and returns *self*.
+        Rules that support per-rule configuration should override this method.
+
+        Args:
+            options: Mapping of option names to values.
+
+        Returns:
+            A Rule instance (possibly new) with options applied.
+        """
+        return self
