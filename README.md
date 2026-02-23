@@ -3,7 +3,8 @@
 A Python linter with opinionated rules about import style, naming, and code structure. Runs as a CLI tool or as an LSP server for editor integration.
 
 The primary intent of Sergey is to enforce my personal stylistic rules upon agentic code.
-However, you may also find these useful in standard development.
+However, you may also find these useful in standard development. Simultaneously, it is a testing
+space for me for agentic coding. 
 
 ## Installation
 
