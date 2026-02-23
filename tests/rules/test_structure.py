@@ -1,4 +1,4 @@
-"""Tests for STR002 and STR003 structure rules."""
+"""Tests for STR002, STR003, and STR004 structure rules."""
 
 import ast
 import textwrap
@@ -468,8 +468,8 @@ class TestSTR003:
         """)
         tree = ast.parse(source)
         diags = structure.STR003().check(tree, source)
-        assert "5" in diags[0].message   # actual count
-        assert "4" in diags[0].message   # maximum allowed
+        assert "5" in diags[0].message  # actual count
+        assert "4" in diags[0].message  # maximum allowed
 
     def test_configure_changes_threshold(self) -> None:
         rule = structure.STR003()
@@ -500,3 +500,358 @@ class TestSTR003:
         """)
         tree = ast.parse(source)
         assert configured.check(tree, source) == rule.check(tree, source)
+
+
+# ---------------------------------------------------------------------------
+# STR004 — prefer tuples for unmodified lists
+# ---------------------------------------------------------------------------
+
+
+def _check_str004(source: str) -> list[str]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.rule_id for diag in structure.STR004().check(tree, source)]
+
+
+class TestSTR004:
+    # ------------------------------------------------------------------
+    # Cases that SHOULD be flagged
+    # ------------------------------------------------------------------
+
+    def test_unmodified_list_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                for item in items:
+                    print(item)
+        """
+        assert _check_str004(source) == ["STR004"]
+
+    def test_unused_list_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = []
+        """
+        assert _check_str004(source) == ["STR004"]
+
+    def test_list_used_for_membership_flagged(self) -> None:
+        source = """\
+            def foo(val):
+                allowed = [1, 2, 3]
+                if val in allowed:
+                    pass
+        """
+        assert _check_str004(source) == ["STR004"]
+
+    def test_annotated_assignment_flagged(self) -> None:
+        source = """\
+            def foo():
+                items: list[int] = [1, 2, 3]
+                print(items)
+        """
+        assert _check_str004(source) == ["STR004"]
+
+    def test_async_function_flagged(self) -> None:
+        source = """\
+            async def foo():
+                items = [1, 2, 3]
+                for item in items:
+                    pass
+        """
+        assert _check_str004(source) == ["STR004"]
+
+    def test_multiple_unmodified_lists_both_flagged(self) -> None:
+        source = """\
+            def foo():
+                xs = [1, 2]
+                ys = [3, 4]
+                print(xs, ys)
+        """
+        assert _check_str004(source) == ["STR004", "STR004"]
+
+    def test_list_in_if_branch_flagged(self) -> None:
+        source = """\
+            def foo(cond):
+                if cond:
+                    items = [1, 2, 3]
+                    print(items)
+        """
+        assert _check_str004(source) == ["STR004"]
+
+    def test_list_passed_to_function_still_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                print(len(items))
+        """
+        assert _check_str004(source) == ["STR004"]
+
+    # ------------------------------------------------------------------
+    # Cases that should NOT be flagged — in-place mutations
+    # ------------------------------------------------------------------
+
+    def test_append_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = []
+                items.append(1)
+        """
+        assert _check_str004(source) == []
+
+    def test_extend_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = []
+                items.extend([1, 2])
+        """
+        assert _check_str004(source) == []
+
+    def test_insert_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2]
+                items.insert(0, 0)
+        """
+        assert _check_str004(source) == []
+
+    def test_pop_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2]
+                items.pop()
+        """
+        assert _check_str004(source) == []
+
+    def test_remove_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                items.remove(2)
+        """
+        assert _check_str004(source) == []
+
+    def test_clear_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2]
+                items.clear()
+        """
+        assert _check_str004(source) == []
+
+    def test_sort_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [3, 1, 2]
+                items.sort()
+        """
+        assert _check_str004(source) == []
+
+    def test_reverse_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                items.reverse()
+        """
+        assert _check_str004(source) == []
+
+    def test_augmented_assignment_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1]
+                items += [2, 3]
+        """
+        assert _check_str004(source) == []
+
+    def test_subscript_assignment_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                items[0] = 99
+        """
+        assert _check_str004(source) == []
+
+    def test_subscript_deletion_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                del items[0]
+        """
+        assert _check_str004(source) == []
+
+    # ------------------------------------------------------------------
+    # Cases that should NOT be flagged — function output
+    # ------------------------------------------------------------------
+
+    def test_returned_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                return items
+        """
+        assert _check_str004(source) == []
+
+    def test_returned_in_tuple_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                return items, 42
+        """
+        assert _check_str004(source) == []
+
+    def test_yielded_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                yield items
+        """
+        assert _check_str004(source) == []
+
+    def test_yield_from_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                yield from items
+        """
+        assert _check_str004(source) == []
+
+    # ------------------------------------------------------------------
+    # Cases that should NOT be flagged — scope / rebinding / escape
+    # ------------------------------------------------------------------
+
+    def test_module_level_list_not_flagged(self) -> None:
+        source = """\
+            items = [1, 2, 3]
+            for item in items:
+                print(item)
+        """
+        assert _check_str004(source) == []
+
+    def test_class_body_list_not_flagged(self) -> None:
+        source = """\
+            class Foo:
+                items = [1, 2, 3]
+        """
+        assert _check_str004(source) == []
+
+    def test_reassigned_variable_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                items = other()
+        """
+        assert _check_str004(source) == []
+
+    def test_global_variable_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                global items
+                items = [1, 2, 3]
+        """
+        assert _check_str004(source) == []
+
+    def test_nonlocal_variable_not_flagged(self) -> None:
+        source = """\
+            def outer():
+                items = []
+                def foo():
+                    nonlocal items
+                    items = [1, 2, 3]
+        """
+        assert _check_str004(source) == []
+
+    def test_used_in_nested_function_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                def inner():
+                    print(items)
+                inner()
+        """
+        assert _check_str004(source) == []
+
+    def test_used_in_lambda_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                fn = lambda: items
+        """
+        assert _check_str004(source) == []
+
+    def test_stored_as_attribute_not_flagged(self) -> None:
+        source = """\
+            def foo(self):
+                items = [1, 2, 3]
+                self.items = items
+        """
+        assert _check_str004(source) == []
+
+    def test_stored_in_dict_not_flagged(self) -> None:
+        source = """\
+            def foo(data):
+                items = [1, 2, 3]
+                data["key"] = items
+        """
+        assert _check_str004(source) == []
+
+    def test_multi_target_assignment_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                x = y = [1, 2, 3]
+        """
+        assert _check_str004(source) == []
+
+    def test_for_loop_rebind_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                for items in something:
+                    pass
+        """
+        assert _check_str004(source) == []
+
+    def test_walrus_rebind_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = [1, 2, 3]
+                if (items := other()):
+                    pass
+        """
+        assert _check_str004(source) == []
+
+    # ------------------------------------------------------------------
+    # Diagnostic metadata
+    # ------------------------------------------------------------------
+
+    def test_rule_id(self) -> None:
+        source = textwrap.dedent("""\
+            def foo():
+                items = [1, 2, 3]
+                print(items)
+        """)
+        tree = ast.parse(source)
+        diags = structure.STR004().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].rule_id == "STR004"
+
+    def test_diagnostic_line_points_to_assignment(self) -> None:
+        source = textwrap.dedent("""\
+            def foo():
+                x = 0
+                items = [1, 2, 3]
+                print(items)
+        """)
+        tree = ast.parse(source)
+        diags = structure.STR004().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].line == 3
+
+    def test_diagnostic_message_contains_variable_name(self) -> None:
+        source = textwrap.dedent("""\
+            def foo():
+                colors = ["red", "green"]
+                print(colors)
+        """)
+        tree = ast.parse(source)
+        diags = structure.STR004().check(tree, source)
+        assert len(diags) == 1
+        assert "colors" in diags[0].message
+        assert "tuple" in diags[0].message
