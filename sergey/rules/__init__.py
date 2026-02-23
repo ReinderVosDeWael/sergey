@@ -15,6 +15,7 @@ ALL_RULES: list[base.Rule] = [
     pydantic.PDT002(),
     structure.STR002(),
     structure.STR003(),
+    structure.STR004(),
 ]
 
 __all__ = ["ALL_RULES"]
