@@ -263,7 +263,7 @@ class STR003(base.Rule):
 
 
 # ---------------------------------------------------------------------------
-# STR004 — prefer tuples for unmodified lists
+# STR004 — prefer tuples/frozensets for unmodified lists/sets
 # ---------------------------------------------------------------------------
 
 _LIST_MUTATING_METHODS: frozenset[str] = frozenset(
@@ -276,6 +276,20 @@ _LIST_MUTATING_METHODS: frozenset[str] = frozenset(
         "remove",
         "reverse",
         "sort",
+    }
+)
+
+_SET_MUTATING_METHODS: frozenset[str] = frozenset(
+    {
+        "add",
+        "clear",
+        "difference_update",
+        "discard",
+        "intersection_update",
+        "pop",
+        "remove",
+        "symmetric_difference_update",
+        "update",
     }
 )
 
@@ -322,22 +336,23 @@ def _target_has_name(target: ast.AST, name: str) -> bool:
     return False
 
 
-def _is_list_mutated(
+def _is_mutated(
     func: ast.FunctionDef | ast.AsyncFunctionDef,
     name: str,
+    mutating_methods: frozenset[str],
 ) -> bool:
-    """Return True if the list bound to *name* is mutated in-place."""
+    """Return True if the object bound to *name* is mutated in-place."""
     for node in _iter_scope(func):
-        # Mutating method calls: name.append(...), name.extend(...), etc.
+        # Mutating method calls: name.append(...), name.add(...), etc.
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and isinstance(node.func.value, ast.Name)
             and node.func.value.id == name
-            and node.func.attr in _LIST_MUTATING_METHODS
+            and node.func.attr in mutating_methods
         ):
             return True
-        # Augmented assignment: name += [...]
+        # Augmented assignment: name += [...] / name |= {...}
         if (
             isinstance(node, ast.AugAssign)
             and isinstance(node.target, ast.Name)
@@ -429,11 +444,11 @@ def _has_global_or_nonlocal(
     return False
 
 
-def _does_list_escape(
+def _does_escape(
     func: ast.FunctionDef | ast.AsyncFunctionDef,
     name: str,
 ) -> bool:
-    """Return True if the list may escape via attribute or subscript storage."""
+    """Return True if the object may escape via attribute or subscript storage."""
     for node in _iter_scope(func):
         if not isinstance(node, ast.Assign):
             continue
@@ -445,26 +460,29 @@ def _does_list_escape(
     return False
 
 
-def _collect_list_assignments(
+_MUTABLE_LITERAL_TYPES: tuple[type[ast.expr], ...] = (ast.List, ast.Set)
+
+
+def _collect_literal_assignments(
     func: ast.FunctionDef | ast.AsyncFunctionDef,
-) -> list[tuple[str, ast.stmt]]:
-    """Return ``(name, assign_node)`` pairs for list-literal assignments."""
-    candidates: list[tuple[str, ast.stmt]] = []
+) -> list[tuple[str, ast.stmt, type[ast.expr]]]:
+    """Return ``(name, node, literal_type)`` triples for mutable literals."""
+    candidates: list[tuple[str, ast.stmt, type[ast.expr]]] = []
     for node in _iter_scope(func):
         if (
             isinstance(node, ast.Assign)
-            and isinstance(node.value, ast.List)
+            and isinstance(node.value, _MUTABLE_LITERAL_TYPES)
             and len(node.targets) == 1
             and isinstance(node.targets[0], ast.Name)
         ):
-            candidates.append((node.targets[0].id, node))
+            candidates.append((node.targets[0].id, node, type(node.value)))
         elif (
             isinstance(node, ast.AnnAssign)
             and node.value is not None
-            and isinstance(node.value, ast.List)
+            and isinstance(node.value, _MUTABLE_LITERAL_TYPES)
             and isinstance(node.target, ast.Name)
         ):
-            candidates.append((node.target.id, node))
+            candidates.append((node.target.id, node, type(node.value)))
     return candidates
 
 
@@ -472,29 +490,43 @@ def _should_skip(
     func: ast.FunctionDef | ast.AsyncFunctionDef,
     name: str,
     assign_node: ast.stmt,
+    mutating_methods: frozenset[str],
 ) -> bool:
-    """Return True if the list should *not* be flagged."""
+    """Return True if the mutable literal should *not* be flagged."""
     return (
         _has_global_or_nonlocal(func, name)
         or _is_name_rebound(func, name, assign_node)
-        or _is_list_mutated(func, name)
+        or _is_mutated(func, name, mutating_methods)
         or _is_in_function_output(func, name)
         or _name_used_in_nested_scope(func, name)
-        or _does_list_escape(func, name)
+        or _does_escape(func, name)
     )
 
 
+_IMMUTABLE_SUGGESTION: dict[type[ast.expr], tuple[str, str, frozenset[str]]] = {
+    ast.List: ("List", "tuple", _LIST_MUTATING_METHODS),
+    ast.Set: ("Set", "frozenset", _SET_MUTATING_METHODS),
+}
+
+
 class STR004(base.Rule):
-    """Flag list literals in functions that are never modified and not returned.
+    """Flag list/set literals in functions that are never modified and not returned.
 
-    When a list is created inside a function body and is never mutated
-    (via ``append``, ``extend``, ``insert``, ``pop``, ``remove``, ``clear``,
-    ``sort``, ``reverse``, augmented assignment, or item assignment/deletion)
+    When a list or set is created inside a function body and is never mutated
     and is not part of the function output (``return`` / ``yield``), an
-    immutable ``tuple`` should be used instead.
+    immutable alternative should be used instead — ``tuple`` for lists and
+    ``frozenset`` for sets.
 
-    Only plain list literals (``[...]``) are checked; ``list()`` calls and
-    list comprehensions are not covered.
+    Recognised list mutations: ``append``, ``extend``, ``insert``, ``pop``,
+    ``remove``, ``clear``, ``sort``, ``reverse``, augmented assignment, and
+    item assignment/deletion.
+
+    Recognised set mutations: ``add``, ``update``, ``discard``, ``pop``,
+    ``remove``, ``clear``, ``difference_update``, ``intersection_update``,
+    ``symmetric_difference_update``, and augmented assignment.
+
+    Only plain literals (``[...]`` / ``{...}``) are checked; constructor
+    calls and comprehensions are not covered.
 
     Allowed:
         def build():
@@ -502,15 +534,24 @@ class STR004(base.Rule):
             items.append(1)
             return items
 
+        def configure():
+            seen = {1, 2}
+            seen.add(3)
+            return seen
+
     Flagged:
         def process():
             colors = ["red", "green", "blue"]
             for color in colors:
                 print(color)
+
+        def validate(value):
+            allowed = {1, 2, 3}
+            return value in allowed
     """
 
     def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
-        """Return a diagnostic for each unmodified list that should be a tuple."""
+        """Return a diagnostic for each unmodified mutable literal."""
         diagnostics: list[base.Diagnostic] = []
         try:
             for node in ast.walk(tree):
@@ -524,17 +565,21 @@ class STR004(base.Rule):
         self,
         func: ast.FunctionDef | ast.AsyncFunctionDef,
     ) -> list[base.Diagnostic]:
-        """Check a single function for unmodified list literals."""
-        candidates = _collect_list_assignments(func)
+        """Check a single function for unmodified mutable literals."""
+        candidates = _collect_literal_assignments(func)
         diagnostics: list[base.Diagnostic] = []
-        for name, assign_node in candidates:
-            if _should_skip(func, name, assign_node):
+        for name, assign_node, literal_type in candidates:
+            kind_label, suggestion, mutating_methods = _IMMUTABLE_SUGGESTION[
+                literal_type
+            ]
+            if _should_skip(func, name, assign_node, mutating_methods):
                 continue
             diagnostics.append(
                 base.Diagnostic(
                     rule_id="STR004",
                     message=(
-                        f"List `{name}` is never modified; use a tuple for immutability"
+                        f"{kind_label} `{name}` is never modified;"
+                        f" use a {suggestion} for immutability"
                     ),
                     line=assign_node.lineno,
                     col=assign_node.col_offset,

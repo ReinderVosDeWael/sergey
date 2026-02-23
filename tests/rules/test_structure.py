@@ -855,3 +855,243 @@ class TestSTR004:
         assert len(diags) == 1
         assert "colors" in diags[0].message
         assert "tuple" in diags[0].message
+
+    # ------------------------------------------------------------------
+    # Set literals — cases that SHOULD be flagged
+    # ------------------------------------------------------------------
+
+    def test_unmodified_set_flagged(self) -> None:
+        source = """\
+            def foo(val):
+                allowed = {1, 2, 3}
+                if val in allowed:
+                    print("ok")
+        """
+        assert _check_str004(source) == ["STR004"]
+
+    def test_unused_set_flagged(self) -> None:
+        source = """\
+            def foo():
+                tags = {"a", "b"}
+        """
+        assert _check_str004(source) == ["STR004"]
+
+    def test_set_iterated_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2, 3}
+                for item in items:
+                    print(item)
+        """
+        assert _check_str004(source) == ["STR004"]
+
+    def test_set_annotated_assignment_flagged(self) -> None:
+        source = """\
+            def foo():
+                items: set[int] = {1, 2, 3}
+                print(items)
+        """
+        assert _check_str004(source) == ["STR004"]
+
+    def test_set_in_async_function_flagged(self) -> None:
+        source = """\
+            async def foo():
+                vals = {1, 2}
+                print(vals)
+        """
+        assert _check_str004(source) == ["STR004"]
+
+    def test_mixed_list_and_set_both_flagged(self) -> None:
+        source = """\
+            def foo():
+                xs = [1, 2]
+                ys = {3, 4}
+                print(xs, ys)
+        """
+        assert _check_str004(source) == ["STR004", "STR004"]
+
+    # ------------------------------------------------------------------
+    # Set literals — cases that should NOT be flagged (mutations)
+    # ------------------------------------------------------------------
+
+    def test_set_add_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2}
+                items.add(3)
+        """
+        assert _check_str004(source) == []
+
+    def test_set_update_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1}
+                items.update({2, 3})
+        """
+        assert _check_str004(source) == []
+
+    def test_set_discard_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2, 3}
+                items.discard(2)
+        """
+        assert _check_str004(source) == []
+
+    def test_set_remove_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2, 3}
+                items.remove(2)
+        """
+        assert _check_str004(source) == []
+
+    def test_set_pop_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2}
+                items.pop()
+        """
+        assert _check_str004(source) == []
+
+    def test_set_clear_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2}
+                items.clear()
+        """
+        assert _check_str004(source) == []
+
+    def test_set_difference_update_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2, 3}
+                items.difference_update({1})
+        """
+        assert _check_str004(source) == []
+
+    def test_set_intersection_update_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2, 3}
+                items.intersection_update({2, 3})
+        """
+        assert _check_str004(source) == []
+
+    def test_set_symmetric_difference_update_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2, 3}
+                items.symmetric_difference_update({3, 4})
+        """
+        assert _check_str004(source) == []
+
+    def test_set_augmented_or_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1}
+                items |= {2, 3}
+        """
+        assert _check_str004(source) == []
+
+    def test_set_augmented_and_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2, 3}
+                items &= {2, 3}
+        """
+        assert _check_str004(source) == []
+
+    def test_set_augmented_sub_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2, 3}
+                items -= {1}
+        """
+        assert _check_str004(source) == []
+
+    def test_set_augmented_xor_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2, 3}
+                items ^= {3, 4}
+        """
+        assert _check_str004(source) == []
+
+    # ------------------------------------------------------------------
+    # Set literals — cases that should NOT be flagged (output / escape)
+    # ------------------------------------------------------------------
+
+    def test_set_returned_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2, 3}
+                return items
+        """
+        assert _check_str004(source) == []
+
+    def test_set_yielded_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2, 3}
+                yield items
+        """
+        assert _check_str004(source) == []
+
+    def test_set_used_in_nested_function_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2, 3}
+                def inner():
+                    print(items)
+                inner()
+        """
+        assert _check_str004(source) == []
+
+    def test_set_stored_as_attribute_not_flagged(self) -> None:
+        source = """\
+            def foo(self):
+                items = {1, 2, 3}
+                self.items = items
+        """
+        assert _check_str004(source) == []
+
+    def test_set_reassigned_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                items = {1, 2, 3}
+                items = other()
+        """
+        assert _check_str004(source) == []
+
+    def test_set_global_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                global items
+                items = {1, 2, 3}
+        """
+        assert _check_str004(source) == []
+
+    def test_module_level_set_not_flagged(self) -> None:
+        source = """\
+            items = {1, 2, 3}
+            print(items)
+        """
+        assert _check_str004(source) == []
+
+    # ------------------------------------------------------------------
+    # Set diagnostic metadata
+    # ------------------------------------------------------------------
+
+    def test_set_diagnostic_message(self) -> None:
+        source = textwrap.dedent("""\
+            def foo():
+                tags = {"a", "b"}
+                print(tags)
+        """)
+        tree = ast.parse(source)
+        diags = structure.STR004().check(tree, source)
+        assert len(diags) == 1
+        assert "tags" in diags[0].message
+        assert "Set" in diags[0].message
+        assert "frozenset" in diags[0].message
