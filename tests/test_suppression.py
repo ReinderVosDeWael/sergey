@@ -90,7 +90,7 @@ class TestFileSuppression:
         source = textwrap.dedent("""\
             # sergey: disable-file: IMP001
             from os.path import join
-            from typing import Optional
+            import typing
         """)
         result = _imp_ids(source)
         assert result == ["IMP002"]
@@ -155,7 +155,7 @@ class TestCombinedSuppression:
         source = textwrap.dedent("""\
             # sergey: disable-file: IMP001
             from os.path import join
-            from typing import Optional
+            import typing
         """)
         # IMP001 file-disabled; IMP002 on line 3 is NOT suppressed
         result = _imp_ids(source)

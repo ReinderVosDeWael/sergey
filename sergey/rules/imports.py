@@ -7,7 +7,7 @@ from sergey.rules import base
 
 # Modules excluded from IMP001 — covered by IMP002/IMP004 or are special syntax.
 _IMP001_EXCLUDED: frozenset[str] = frozenset(
-    {"__future__", "typing", "collections.abc"}
+    {"__future__", "typing", "typing_extensions", "collections.abc"}
 )
 
 # Typing modules covered by IMP002.
@@ -88,39 +88,40 @@ class IMP001(base.Rule):
 
 
 class IMP002(base.Rule):
-    """Flag from-imports of typing modules; require `import typing` instead.
+    """Flag plain imports of typing modules; require from-imports instead.
 
     Allowed:
-        import typing
-
-    Flagged:
         from typing import Optional
         from typing_extensions import Protocol
+
+    Flagged:
+        import typing
+        import typing_extensions
     """
 
     def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
-        """Return a diagnostic for every from-import of a typing module."""
+        """Return a diagnostic for every plain import of a typing module."""
         diagnostics: list[base.Diagnostic] = []
         for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom):
+            if not isinstance(node, ast.Import):
                 continue
-            if node.module not in _TYPING_MODULES:
-                continue
-            names = ", ".join(alias.name for alias in node.names)
-            diagnostics.append(
-                base.Diagnostic(
-                    rule_id="IMP002",
-                    message=(
-                        f"Use `import {node.module}` instead of"
-                        f" importing `{names}` from `{node.module}`"
-                    ),
-                    line=node.lineno,
-                    col=node.col_offset,
-                    end_line=node.end_lineno or node.lineno,
-                    end_col=node.end_col_offset or node.col_offset,
-                    severity=base.Severity.WARNING,
+            for alias in node.names:
+                if alias.name not in _TYPING_MODULES:
+                    continue
+                diagnostics.append(
+                    base.Diagnostic(
+                        rule_id="IMP002",
+                        message=(
+                            f"Use `from {alias.name} import ...`"
+                            f" instead of `import {alias.name}`"
+                        ),
+                        line=node.lineno,
+                        col=node.col_offset,
+                        end_line=node.end_lineno or node.lineno,
+                        end_col=node.end_col_offset or node.col_offset,
+                        severity=base.Severity.WARNING,
+                    )
                 )
-            )
         return diagnostics
 
 

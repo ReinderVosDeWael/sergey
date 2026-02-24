@@ -39,7 +39,7 @@ Communicates over stdio using the Language Server Protocol. Configure your edito
 | Rule       | Description                                                                                                                                                                                            |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **IMP001** | `from module import name` is disallowed when `name` is not itself a submodule. Use `import module` and reference `module.name` at call sites. Typing modules and `__future__` are exempt (see IMP002). |
-| **IMP002** | `from typing import X` and `from typing_extensions import X` are disallowed. Use `import typing` and write `typing.X`.                                                                                 |
+| **IMP002** | `import typing` and `import typing_extensions` are disallowed. Use `from typing import X` and `from typing_extensions import X` to import names directly.                                             |
 | **IMP003** | Dotted plain imports (`import os.path`) are disallowed. Use `from os import path` instead.                                                                                                             |
 
 The three rules together enforce a consistent import style: every name you use is either a bare module you imported at the top level, or a submodule you accessed via `from package import submodule`.
