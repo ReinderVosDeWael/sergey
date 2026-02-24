@@ -83,6 +83,10 @@ class TestIMP001:
         # typing is covered by IMP002, not IMP001
         assert _check_imp001("from typing import Optional") == []
 
+    def test_typing_extensions_import_excluded(self) -> None:
+        # typing_extensions is covered by IMP002, not IMP001
+        assert _check_imp001("from typing_extensions import Protocol") == []
+
     def test_collections_abc_import_excluded(self) -> None:
         # collections.abc is covered by IMP004, not IMP001
         assert _check_imp001("from collections.abc import Mapping") == []
@@ -117,48 +121,45 @@ class TestIMP001:
 
 
 class TestIMP002:
-    def test_import_typing_ok(self) -> None:
-        assert _check_imp002("import typing") == []
+    def test_from_typing_ok(self) -> None:
+        assert _check_imp002("from typing import Optional") == []
 
-    def test_import_typing_extensions_ok(self) -> None:
-        assert _check_imp002("import typing_extensions") == []
+    def test_from_typing_extensions_ok(self) -> None:
+        assert _check_imp002("from typing_extensions import Protocol") == []
 
-    def test_from_typing_flagged(self) -> None:
-        assert _check_imp002("from typing import Optional") == ["IMP002"]
+    def test_from_typing_multiple_names_ok(self) -> None:
+        assert _check_imp002("from typing import Optional, List, Dict") == []
 
-    def test_from_typing_extensions_flagged(self) -> None:
-        assert _check_imp002("from typing_extensions import Protocol") == ["IMP002"]
+    def test_from_typing_type_checking_ok(self) -> None:
+        assert _check_imp002("from typing import TYPE_CHECKING") == []
 
-    def test_from_typing_multiple_names_one_diagnostic(self) -> None:
-        result = _check_imp002("from typing import Optional, List, Dict")
-        assert result == ["IMP002"]
+    def test_import_typing_flagged(self) -> None:
+        assert _check_imp002("import typing") == ["IMP002"]
 
-    def test_from_typing_type_checking_flagged(self) -> None:
-        # TYPE_CHECKING is a special form but still lives in typing
-        assert _check_imp002("from typing import TYPE_CHECKING") == ["IMP002"]
+    def test_import_typing_extensions_flagged(self) -> None:
+        assert _check_imp002("import typing_extensions") == ["IMP002"]
 
     def test_non_typing_import_not_flagged(self) -> None:
-        assert _check_imp002("from os.path import join") == []
+        assert _check_imp002("import os") == []
 
     def test_diagnostic_line_number(self) -> None:
         source = textwrap.dedent("""\
             import os
-            from typing import Optional
+            import typing
         """)
         tree = ast.parse(source)
         diags = imports.IMP002().check(tree, source)
         assert len(diags) == 1
         assert diags[0].line == 2
 
-    def test_diagnostic_message_contains_name_and_module(self) -> None:
-        source = "from typing import Optional"
+    def test_diagnostic_message_contains_module(self) -> None:
+        source = "import typing"
         tree = ast.parse(source)
         diags = imports.IMP002().check(tree, source)
-        assert "Optional" in diags[0].message
         assert "typing" in diags[0].message
 
     def test_rule_id(self) -> None:
-        source = "from typing import Any"
+        source = "import typing"
         tree = ast.parse(source)
         diags = imports.IMP002().check(tree, source)
         assert diags[0].rule_id == "IMP002"
