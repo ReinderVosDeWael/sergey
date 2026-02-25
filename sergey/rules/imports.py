@@ -88,23 +88,28 @@ def _imp001_fix(
 ) -> base.Fix | None:
     """Build the replacement for an IMP001 violation on *node*.
 
-    For dotted modules the import is rewritten one level up so the module
-    itself is imported via a from-import:
+    The import is rewritten one level up so the module itself is imported:
 
     - ``from os.path import join`` → ``from os import path``
-    - ``from collections import OrderedDict`` → ``import collections``
     - ``from .utils import Helper`` → ``from . import utils``
+    - ``from .pkg.sub import X`` → ``from .pkg import sub``
 
-    Good aliases (those that resolve to real submodules) are preserved in a
-    separate from-import statement.  Reference edits are attached to update
-    all Load-context uses of the imported names in the same file.
-
-    Returns ``None`` when no unambiguous fix exists (e.g. ``from . import
-    Name`` with no module component).
+    Non-dotted absolute top-level modules (e.g. ``from collections import X``)
+    are exceptions handled by IMP002/IMP004 style rules; no fix is provided.
+    Relative imports with no module component (``from . import X``) cannot be
+    fixed unambiguously and are also skipped.
     """
-    indent = " " * node.col_offset
     module = node.module or ""
     dots = "." * node.level
+
+    # Non-dotted absolute imports: no fix (exceptions like collections/typing).
+    if node.level == 0 and "." not in module:
+        return None
+    # Relative imports with no module component: no fix.
+    if node.level > 0 and not module:
+        return None
+
+    indent = " " * node.col_offset
     parts: list[str] = []
 
     # Keep submodule imports that were not flagged.
@@ -117,30 +122,15 @@ def _imp001_fix(
         )
         parts.append(f"from {dots}{module} import {names_str}")
 
-    # Build the replacement import and determine the reference prefix
-    # (always the last component of the module path).
-    if node.level == 0:
-        # Absolute import.
-        if not module:
-            return None
-        if "." in module:
-            parent, _, name = module.rpartition(".")
-            parts.append(f"from {parent} import {name}")
-            ref_prefix = name
-        else:
-            parts.append(f"import {module}")
-            ref_prefix = module
+    # Go one level up: from {parent} import {name}.
+    if "." in module:
+        parent, _, name = module.rpartition(".")
+        parts.append(f"from {dots}{parent} import {name}")
+        ref_prefix = name
     else:
-        # Relative import.
-        if not module:
-            return None  # ``from . import Name`` — no module component.
-        if "." in module:
-            parent, _, name = module.rpartition(".")
-            parts.append(f"from {dots}{parent} import {name}")
-            ref_prefix = name
-        else:
-            parts.append(f"from {dots} import {module}")
-            ref_prefix = module
+        # Relative, non-dotted module: from {dots} import {module}.
+        parts.append(f"from {dots} import {module}")
+        ref_prefix = module
 
     return base.Fix(
         replacement=f"\n{indent}".join(parts),

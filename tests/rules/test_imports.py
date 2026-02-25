@@ -134,12 +134,12 @@ class TestIMP001Fix:
         assert fixes[0] is not None
         assert fixes[0].replacement == "from os import path"
 
-    def test_top_level_module_fix(self) -> None:
-        # Non-dotted module — plain import is the only option.
+    def test_top_level_module_no_fix(self) -> None:
+        # Non-dotted module (e.g. collections, os) — no fix: these are
+        # exceptions like typing/collections.abc handled by IMP002/IMP004.
         fixes = _fix_imp001("from collections import OrderedDict")
         assert len(fixes) == 1
-        assert fixes[0] is not None
-        assert fixes[0].replacement == "import collections"
+        assert fixes[0] is None
 
     def test_multiple_bad_names_one_import(self) -> None:
         fixes = _fix_imp001("from os.path import join, exists, dirname")
@@ -153,14 +153,14 @@ class TestIMP001Fix:
         assert fixes[0] is not None
         assert fixes[0].replacement == "from os import path"
 
-    def test_mixed_good_and_bad_aliases_fix(self) -> None:
-        # path is a submodule (kept), getcwd is a function (flagged)
+    def test_mixed_good_and_bad_no_fix(self) -> None:
+        # os is non-dotted — no fix (exception like collections/typing).
         fixes = _fix_imp001("from os import path, getcwd")
         assert len(fixes) == 1
-        assert fixes[0] is not None
-        assert fixes[0].replacement == "from os import path\nimport os"
+        assert fixes[0] is None
 
     def test_relative_import_with_module_fix(self) -> None:
+        # Relative import: keep the dot(s) with the module.
         fixes = _fix_imp001("from .utils import Helper")
         assert len(fixes) == 1
         assert fixes[0] is not None
@@ -195,7 +195,7 @@ class TestIMP001Fix:
         assert len(fixes) == 1
         assert fixes[0] is None
 
-    def test_two_flagged_statements_two_fixes(self) -> None:
+    def test_dotted_fix_non_dotted_no_fix(self) -> None:
         source = textwrap.dedent("""\
             from os.path import join
             from collections import OrderedDict
@@ -204,8 +204,7 @@ class TestIMP001Fix:
         assert len(fixes) == 2
         assert fixes[0] is not None
         assert fixes[0].replacement == "from os import path"
-        assert fixes[1] is not None
-        assert fixes[1].replacement == "import collections"
+        assert fixes[1] is None  # non-dotted module — no fix
 
     def test_reference_edit_for_bad_alias(self) -> None:
         source = textwrap.dedent("""\
@@ -308,17 +307,6 @@ class TestIMP001FixEndToEnd:
         """)
         assert _apply_imp001(source) == expected
 
-    def test_top_level_module_and_reference(self) -> None:
-        source = """\
-            from collections import OrderedDict
-            d = OrderedDict()
-        """
-        expected = textwrap.dedent("""\
-            import collections
-            d = collections.OrderedDict()
-        """)
-        assert _apply_imp001(source) == expected
-
     def test_multiple_bad_names_and_references(self) -> None:
         source = """\
             from os.path import join, exists
@@ -332,20 +320,25 @@ class TestIMP001FixEndToEnd:
         """)
         assert _apply_imp001(source) == expected
 
-    def test_mixed_good_bad_references(self) -> None:
-        # path is a submodule (kept in from-import); getcwd is bad.
+    def test_no_references_only_import_rewritten(self) -> None:
         source = """\
-            from os import path, getcwd
-            cwd = getcwd()
+            from os.path import join
         """
         expected = textwrap.dedent("""\
             from os import path
-            import os
-            cwd = os.getcwd()
         """)
         assert _apply_imp001(source) == expected
 
-    def test_relative_import_and_reference(self) -> None:
+    def test_non_dotted_module_no_fix_applied(self) -> None:
+        # Non-dotted modules are exceptions — source left unchanged.
+        source = textwrap.dedent("""\
+            from collections import OrderedDict
+            d = OrderedDict()
+        """)
+        assert _apply_imp001(source) == source
+
+    def test_relative_import_and_reference_rewritten(self) -> None:
+        # Relative import: dots kept with the module, references updated.
         source = """\
             from .utils import Helper
             obj = Helper()
@@ -353,15 +346,6 @@ class TestIMP001FixEndToEnd:
         expected = textwrap.dedent("""\
             from . import utils
             obj = utils.Helper()
-        """)
-        assert _apply_imp001(source) == expected
-
-    def test_no_references_only_import_rewritten(self) -> None:
-        source = """\
-            from os.path import join
-        """
-        expected = textwrap.dedent("""\
-            from os import path
         """)
         assert _apply_imp001(source) == expected
 
