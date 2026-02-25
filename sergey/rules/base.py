@@ -21,16 +21,29 @@ class Severity(enum.Enum):
 
 
 @dataclasses.dataclass
+class Fix:
+    """A text replacement that resolves a diagnostic.
+
+    The replacement covers the range of the parent Diagnostic
+    (line, col) → (end_line, end_col), using 1-indexed lines and
+    0-indexed columns.
+    """
+
+    replacement: str
+
+
+@dataclasses.dataclass
 class Diagnostic:
     """A single diagnostic emitted by a rule."""
 
     rule_id: str
     message: str
-    line: int      # 1-indexed
-    col: int       # 0-indexed
+    line: int  # 1-indexed
+    col: int  # 0-indexed
     end_line: int
     end_col: int
     severity: Severity
+    fix: Fix | None = None
 
 
 class Rule(abc.ABC):
