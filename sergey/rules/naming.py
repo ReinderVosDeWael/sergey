@@ -41,9 +41,7 @@ class NAM001(base.Rule):
             # Strip leading underscores so private helpers like `_is_valid`
             # are treated the same as their public equivalents.
             public_name = name.lstrip("_")
-            if any(
-                public_name.startswith(prefix) for prefix in _PREDICATE_PREFIXES
-            ):
+            if any(public_name.startswith(prefix) for prefix in _PREDICATE_PREFIXES):
                 continue
             prefixes = ", ".join(sorted(_PREDICATE_PREFIXES))
             diagnostics.append(

@@ -3,7 +3,7 @@
 import ast
 import textwrap
 
-from sergey.rules import imports
+from sergey.rules import base, imports
 
 
 def _check_imp001(source: str) -> list[str]:
@@ -229,6 +229,70 @@ class TestIMP003:
     def test_collections_abc_excluded(self) -> None:
         # collections.abc is covered by IMP004, not IMP003
         assert _check_imp003("import collections.abc") == []
+
+
+# ---------------------------------------------------------------------------
+# IMP003 — auto-fix
+# ---------------------------------------------------------------------------
+
+
+def _fix_imp003(source: str) -> list[base.Fix | None]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.fix for diag in imports.IMP003().check(tree, source)]
+
+
+class TestIMP003Fix:
+    def test_simple_dotted_import_fix(self) -> None:
+        fixes = _fix_imp003("import os.path")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from os import path"
+
+    def test_deep_dotted_import_fix(self) -> None:
+        fixes = _fix_imp003("import importlib.util")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from importlib import util"
+
+    def test_aliased_dotted_import_fix(self) -> None:
+        fixes = _fix_imp003("import os.path as ospath")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from os import path as ospath"
+
+    def test_multiple_dotted_imports_same_fix(self) -> None:
+        # Both diagnostics carry the same fix (the full node replacement).
+        fixes = _fix_imp003("import os.path, importlib.util")
+        assert len(fixes) == 2
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from os import path\nfrom importlib import util"
+        assert fixes[1] is not None
+        assert fixes[1].replacement == fixes[0].replacement
+
+    def test_mixed_dotted_and_plain_fix(self) -> None:
+        # os.path is dotted (flagged), sys is plain (kept as-is in replacement).
+        fixes = _fix_imp003("import os.path, sys")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from os import path\nimport sys"
+
+    def test_indented_import_fix_preserves_indent(self) -> None:
+        # Indented import inside a function — subsequent lines must keep the indent.
+        source = textwrap.dedent("""\
+            def f():
+                import os.path, importlib.util
+        """)
+        tree = ast.parse(source)
+        diags = imports.IMP003().check(tree, source)
+        assert len(diags) == 2
+        assert diags[0].fix is not None
+        expected = "from os import path\n    from importlib import util"
+        assert diags[0].fix.replacement == expected
+
+    def test_no_fix_for_plain_import(self) -> None:
+        # Plain (non-dotted) import produces no IMP003 diagnostics at all.
+        fixes = _fix_imp003("import os")
+        assert fixes == []
 
 
 # ---------------------------------------------------------------------------

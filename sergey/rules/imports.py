@@ -20,6 +20,30 @@ _IMP003_EXCLUDED: frozenset[str] = frozenset({"collections.abc"})
 _COLLECTIONS_MODULES: frozenset[str] = frozenset({"collections.abc"})
 
 
+def _imp003_fix(node: ast.Import) -> base.Fix:
+    """Build the replacement text for an IMP003 violation on *node*.
+
+    Each dotted alias is rewritten as ``from parent import name``; non-dotted
+    aliases are kept as plain ``import`` statements.  When the node contains
+    multiple aliases the replacements are joined with newlines, preserving the
+    original indentation for every subsequent line.
+    """
+    indent = " " * node.col_offset
+    parts: list[str] = []
+    for alias in node.names:
+        if "." in alias.name and alias.name not in _IMP003_EXCLUDED:
+            parent, _, name = alias.name.rpartition(".")
+            stmt = f"from {parent} import {name}"
+            if alias.asname:
+                stmt += f" as {alias.asname}"
+        else:
+            stmt = f"import {alias.name}"
+            if alias.asname:
+                stmt += f" as {alias.asname}"
+        parts.append(stmt)
+    return base.Fix(replacement=f"\n{indent}".join(parts))
+
+
 def _is_submodule(parent: str, name: str) -> bool:
     """Return True if `parent.name` resolves to an importable module or package."""
     try:
@@ -162,6 +186,7 @@ class IMP003(base.Rule):
                         end_line=node.end_lineno or node.lineno,
                         end_col=node.end_col_offset or node.col_offset,
                         severity=base.Severity.WARNING,
+                        fix=_imp003_fix(node),
                     )
                 )
         return diagnostics

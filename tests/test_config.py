@@ -33,9 +33,7 @@ class TestLoadConfigMissing:
         assert isinstance(cfg, sergey_config.Config)
 
     def test_finds_pyproject_in_parent(self, tmp_path: pathlib.Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            "[tool.sergey]\nignore = [\"IMP001\"]\n"
-        )
+        (tmp_path / "pyproject.toml").write_text('[tool.sergey]\nignore = ["IMP001"]\n')
         child = tmp_path / "sub" / "pkg"
         child.mkdir(parents=True)
         cfg = sergey_config.load_config(child)
@@ -68,9 +66,7 @@ class TestLoadConfigNoSection:
 
 class TestLoadConfigSelect:
     def test_select_single_rule(self, tmp_path: pathlib.Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.sergey]\nselect = ["IMP001"]\n'
-        )
+        (tmp_path / "pyproject.toml").write_text('[tool.sergey]\nselect = ["IMP001"]\n')
         cfg = sergey_config.load_config(tmp_path)
         assert cfg.select == frozenset({"IMP001"})
         assert cfg.ignore == frozenset()
@@ -83,9 +79,7 @@ class TestLoadConfigSelect:
         assert cfg.select == frozenset({"IMP001", "PDT001"})
 
     def test_select_normalised_to_uppercase(self, tmp_path: pathlib.Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.sergey]\nselect = ["imp001"]\n'
-        )
+        (tmp_path / "pyproject.toml").write_text('[tool.sergey]\nselect = ["imp001"]\n')
         cfg = sergey_config.load_config(tmp_path)
         assert cfg.select == frozenset({"IMP001"})
 
@@ -97,17 +91,13 @@ class TestLoadConfigSelect:
 
 class TestLoadConfigIgnore:
     def test_ignore_single_rule(self, tmp_path: pathlib.Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.sergey]\nignore = ["PDT001"]\n'
-        )
+        (tmp_path / "pyproject.toml").write_text('[tool.sergey]\nignore = ["PDT001"]\n')
         cfg = sergey_config.load_config(tmp_path)
         assert cfg.select is None
         assert cfg.ignore == frozenset({"PDT001"})
 
     def test_ignore_normalised_to_uppercase(self, tmp_path: pathlib.Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.sergey]\nignore = ["pdt001"]\n'
-        )
+        (tmp_path / "pyproject.toml").write_text('[tool.sergey]\nignore = ["pdt001"]\n')
         cfg = sergey_config.load_config(tmp_path)
         assert "PDT001" in cfg.ignore
 
@@ -260,6 +250,7 @@ class TestConfigureRules:
         # The configured rule uses the new threshold
         source = "try:\n    a=1\n    b=2\n    c=3\nexcept Exception:\n    pass\n"
         import ast  # noqa: PLC0415
+
         tree = ast.parse(source)
         assert len(result[0].check(tree, source)) == 1
         assert len(original.check(tree, source)) == 0

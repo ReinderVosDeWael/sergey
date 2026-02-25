@@ -29,10 +29,10 @@ class TestDOC001:
 
     def test_raise_without_docstring_ok(self) -> None:
         # No docstring: this rule does not check for docstring presence.
-        source = '''\
+        source = """\
             def foo():
                 raise ValueError("bad")
-        '''
+        """
         assert _check_doc001(source) == []
 
     def test_google_raises_section_ok(self) -> None:

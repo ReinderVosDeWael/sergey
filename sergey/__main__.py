@@ -5,7 +5,41 @@ import typing
 
 import typer
 
+from sergey.rules import base as rules_base
+
 app = typer.Typer()
+
+
+def _apply_fixes(source: str, diagnostics: list[rules_base.Diagnostic]) -> str:
+    """Return *source* with all fixable diagnostics applied.
+
+    Fixes are applied from bottom to top so that earlier offsets remain valid
+    after each replacement.  When multiple diagnostics share the same range
+    (e.g. two dotted aliases on one import statement) only the first fix
+    encountered is applied — they are identical by construction.
+    """
+    # Deduplicate by range; preserve insertion order (already sorted top→bottom).
+    seen_ranges: set[tuple[int, int, int, int]] = set()
+    unique: list[rules_base.Diagnostic] = []
+    for diag in diagnostics:
+        if diag.fix is None:
+            continue
+        key = (diag.line, diag.col, diag.end_line, diag.end_col)
+        if key not in seen_ranges:
+            seen_ranges.add(key)
+            unique.append(diag)
+
+    # Apply bottom→top to keep earlier positions stable.
+    for diag in reversed(unique):
+        lines = source.splitlines(keepends=True)
+        # Build character offsets for start and end of the diagnostic range.
+        start = sum(len(lines[i]) for i in range(diag.line - 1)) + diag.col
+        end = sum(len(lines[i]) for i in range(diag.end_line - 1)) + diag.end_col
+        if diag.fix is None:  # pragma: no cover
+            continue
+        source = source[:start] + diag.fix.replacement + source[end:]
+    return source
+
 
 # Directories that are never interesting to analyse.
 _SKIP_DIRS: frozenset[str] = frozenset(
@@ -89,11 +123,15 @@ def check(
         bool,
         typer.Option("--diff", help="Check .py files changed in the current git diff."),
     ] = False,
+    fix: typing.Annotated[  # noqa: FBT002
+        bool,
+        typer.Option("--fix", help="Apply auto-fixes for fixable violations."),
+    ] = False,
 ) -> None:
     """Check one or more files/directories for rule violations.
 
     Raises:
-        typer.Exit: With code 1 if any violations are found.
+        typer.Exit: With code 1 if any unfixed violations remain.
     """
     from sergey import analyzer as sergey_analyzer  # noqa: PLC0415
     from sergey import config as sergey_config  # noqa: PLC0415
@@ -114,6 +152,14 @@ def check(
             continue
 
         diagnostics = analyzer.analyze(source)
+
+        if fix:
+            fixed_source = _apply_fixes(source, diagnostics)
+            if fixed_source != source:
+                file_path.write_text(fixed_source)
+                # Re-analyze to report any remaining violations.
+                diagnostics = analyzer.analyze(fixed_source)
+
         for diag in diagnostics:
             typer.echo(
                 f"{file_path}:{diag.line}:{diag.col}: {diag.rule_id} {diag.message}"
