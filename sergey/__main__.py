@@ -15,29 +15,38 @@ def _apply_fixes(source: str, diagnostics: list[rules_base.Diagnostic]) -> str:
 
     Fixes are applied from bottom to top so that earlier offsets remain valid
     after each replacement.  When multiple diagnostics share the same range
-    (e.g. two dotted aliases on one import statement) only the first fix
-    encountered is applied — they are identical by construction.
+    only the first fix encountered is applied.  Additional edits attached to a
+    Fix (e.g. reference renames) are collected in the same pass.
     """
-    # Deduplicate by range; preserve insertion order (already sorted top→bottom).
-    seen_ranges: set[tuple[int, int, int, int]] = set()
-    unique: list[rules_base.Diagnostic] = []
+    # Collect all unique (line, col, end_line, end_col, replacement) edits.
+    seen: set[tuple[int, int, int, int]] = set()
+    all_edits: list[tuple[int, int, int, int, str]] = []
+
     for diag in diagnostics:
         if diag.fix is None:
             continue
         key = (diag.line, diag.col, diag.end_line, diag.end_col)
-        if key not in seen_ranges:
-            seen_ranges.add(key)
-            unique.append(diag)
+        if key not in seen:
+            seen.add(key)
+            all_edits.append(
+                (diag.line, diag.col, diag.end_line, diag.end_col, diag.fix.replacement)
+            )
+        for edit in diag.fix.additional_edits:
+            ekey = (edit.line, edit.col, edit.end_line, edit.end_col)
+            if ekey not in seen:
+                seen.add(ekey)
+                all_edits.append(
+                    (edit.line, edit.col, edit.end_line, edit.end_col, edit.replacement)
+                )
 
     # Apply bottom→top to keep earlier positions stable.
-    for diag in reversed(unique):
+    for line, col, end_line, end_col, replacement in sorted(
+        all_edits, key=lambda e: (e[0], e[1]), reverse=True
+    ):
         lines = source.splitlines(keepends=True)
-        # Build character offsets for start and end of the diagnostic range.
-        start = sum(len(lines[i]) for i in range(diag.line - 1)) + diag.col
-        end = sum(len(lines[i]) for i in range(diag.end_line - 1)) + diag.end_col
-        if diag.fix is None:  # pragma: no cover
-            continue
-        source = source[:start] + diag.fix.replacement + source[end:]
+        start = sum(len(lines[i]) for i in range(line - 1)) + col
+        end = sum(len(lines[i]) for i in range(end_line - 1)) + end_col
+        source = source[:start] + replacement + source[end:]
     return source
 
 

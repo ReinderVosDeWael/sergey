@@ -3,6 +3,7 @@
 import ast
 import textwrap
 
+from sergey.__main__ import _apply_fixes
 from sergey.rules import base, imports
 
 
@@ -127,12 +128,14 @@ def _fix_imp001(source: str) -> list[base.Fix | None]:
 
 class TestIMP001Fix:
     def test_simple_absolute_import_fix(self) -> None:
+        # from os.path import join → from os import path (one level up)
         fixes = _fix_imp001("from os.path import join")
         assert len(fixes) == 1
         assert fixes[0] is not None
-        assert fixes[0].replacement == "import os.path"
+        assert fixes[0].replacement == "from os import path"
 
     def test_top_level_module_fix(self) -> None:
+        # Non-dotted module — plain import is the only option.
         fixes = _fix_imp001("from collections import OrderedDict")
         assert len(fixes) == 1
         assert fixes[0] is not None
@@ -142,13 +145,13 @@ class TestIMP001Fix:
         fixes = _fix_imp001("from os.path import join, exists, dirname")
         assert len(fixes) == 1
         assert fixes[0] is not None
-        assert fixes[0].replacement == "import os.path"
+        assert fixes[0].replacement == "from os import path"
 
     def test_aliased_bad_name_fix(self) -> None:
         fixes = _fix_imp001("from os.path import join as path_join")
         assert len(fixes) == 1
         assert fixes[0] is not None
-        assert fixes[0].replacement == "import os.path"
+        assert fixes[0].replacement == "from os import path"
 
     def test_mixed_good_and_bad_aliases_fix(self) -> None:
         # path is a submodule (kept), getcwd is a function (flagged)
@@ -184,7 +187,7 @@ class TestIMP001Fix:
         diags = imports.IMP001().check(tree, source)
         assert len(diags) == 1
         assert diags[0].fix is not None
-        assert diags[0].fix.replacement == "import os.path"
+        assert diags[0].fix.replacement == "from os import path"
 
     def test_no_fix_for_bare_relative_import(self) -> None:
         # from . import X has no module component — cannot determine fix
@@ -200,9 +203,167 @@ class TestIMP001Fix:
         fixes = _fix_imp001(source)
         assert len(fixes) == 2
         assert fixes[0] is not None
-        assert fixes[0].replacement == "import os.path"
+        assert fixes[0].replacement == "from os import path"
         assert fixes[1] is not None
         assert fixes[1].replacement == "import collections"
+
+    def test_reference_edit_for_bad_alias(self) -> None:
+        source = textwrap.dedent("""\
+            from os.path import join
+            result = join("a", "b")
+        """)
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        fix = diags[0].fix
+        assert fix is not None
+        assert len(fix.additional_edits) == 1
+        edit = fix.additional_edits[0]
+        assert edit.replacement == "path.join"
+        assert edit.line == 2
+
+    def test_reference_edit_uses_alias_asname(self) -> None:
+        # The alias `j` is the name used in code; the replacement should
+        # still use the original name `join`.
+        source = textwrap.dedent("""\
+            from os.path import join as j
+            result = j("a", "b")
+        """)
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        fix = diags[0].fix
+        assert fix is not None
+        assert len(fix.additional_edits) == 1
+        assert fix.additional_edits[0].replacement == "path.join"
+
+    def test_no_reference_edit_before_import(self) -> None:
+        # Names on or before the import line must not be touched.
+        source = textwrap.dedent("""\
+            join = "pre"
+            from os.path import join
+        """)
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        fix = diags[0].fix
+        assert fix is not None
+        assert fix.additional_edits == []
+
+    def test_no_reference_edit_for_store_context(self) -> None:
+        # Assignment targets must not be renamed.
+        source = textwrap.dedent("""\
+            from os.path import join
+            join = "overwritten"
+        """)
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        fix = diags[0].fix
+        assert fix is not None
+        assert fix.additional_edits == []
+
+
+def _apply_imp001(source: str) -> str:
+    """Parse *source*, run IMP001, apply all fixes, and return the result."""
+    source = textwrap.dedent(source)
+    tree = ast.parse(source)
+    diags = imports.IMP001().check(tree, source)
+    return _apply_fixes(source, diags)
+
+
+class TestIMP001FixEndToEnd:
+    def test_import_and_reference_rewritten(self) -> None:
+        source = """\
+            from os.path import join
+            result = join("a", "b")
+        """
+        expected = textwrap.dedent("""\
+            from os import path
+            result = path.join("a", "b")
+        """)
+        assert _apply_imp001(source) == expected
+
+    def test_multiple_references_rewritten(self) -> None:
+        source = """\
+            from os.path import join
+            a = join("x", "y")
+            b = join("p", "q")
+        """
+        expected = textwrap.dedent("""\
+            from os import path
+            a = path.join("x", "y")
+            b = path.join("p", "q")
+        """)
+        assert _apply_imp001(source) == expected
+
+    def test_aliased_name_rewritten(self) -> None:
+        source = """\
+            from os.path import join as j
+            result = j("a", "b")
+        """
+        expected = textwrap.dedent("""\
+            from os import path
+            result = path.join("a", "b")
+        """)
+        assert _apply_imp001(source) == expected
+
+    def test_top_level_module_and_reference(self) -> None:
+        source = """\
+            from collections import OrderedDict
+            d = OrderedDict()
+        """
+        expected = textwrap.dedent("""\
+            import collections
+            d = collections.OrderedDict()
+        """)
+        assert _apply_imp001(source) == expected
+
+    def test_multiple_bad_names_and_references(self) -> None:
+        source = """\
+            from os.path import join, exists
+            a = join("x", "y")
+            b = exists("/tmp")
+        """
+        expected = textwrap.dedent("""\
+            from os import path
+            a = path.join("x", "y")
+            b = path.exists("/tmp")
+        """)
+        assert _apply_imp001(source) == expected
+
+    def test_mixed_good_bad_references(self) -> None:
+        # path is a submodule (kept in from-import); getcwd is bad.
+        source = """\
+            from os import path, getcwd
+            cwd = getcwd()
+        """
+        expected = textwrap.dedent("""\
+            from os import path
+            import os
+            cwd = os.getcwd()
+        """)
+        assert _apply_imp001(source) == expected
+
+    def test_relative_import_and_reference(self) -> None:
+        source = """\
+            from .utils import Helper
+            obj = Helper()
+        """
+        expected = textwrap.dedent("""\
+            from . import utils
+            obj = utils.Helper()
+        """)
+        assert _apply_imp001(source) == expected
+
+    def test_no_references_only_import_rewritten(self) -> None:
+        source = """\
+            from os.path import join
+        """
+        expected = textwrap.dedent("""\
+            from os import path
+        """)
+        assert _apply_imp001(source) == expected
 
 
 # ---------------------------------------------------------------------------

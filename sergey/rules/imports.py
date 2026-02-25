@@ -44,19 +44,63 @@ def _imp003_fix(node: ast.Import) -> base.Fix:
     return base.Fix(replacement=f"\n{indent}".join(parts))
 
 
+def _imp001_ref_edits(
+    node: ast.ImportFrom,
+    bad_aliases: list[ast.alias],
+    ref_prefix: str,
+    tree: ast.Module,
+) -> list[base.Edit]:
+    """Return edits that rewrite all Load-context references to *bad_aliases*.
+
+    For every alias in *bad_aliases*, each ``ast.Name`` node that appears
+    after *node* (by line number), whose id matches the alias's used name, and
+    whose context is Load, is replaced with ``ref_prefix.original_name``.
+    """
+    edits: list[base.Edit] = []
+    for alias in bad_aliases:
+        used_name = alias.asname or alias.name
+        replacement = f"{ref_prefix}.{alias.name}"
+        for name_node in ast.walk(tree):
+            if not isinstance(name_node, ast.Name):
+                continue
+            if name_node.id != used_name:
+                continue
+            if not isinstance(name_node.ctx, ast.Load):
+                continue
+            if name_node.lineno <= node.lineno:
+                continue
+            edits.append(
+                base.Edit(
+                    line=name_node.lineno,
+                    col=name_node.col_offset,
+                    end_line=name_node.end_lineno or name_node.lineno,
+                    end_col=name_node.end_col_offset or name_node.col_offset,
+                    replacement=replacement,
+                )
+            )
+    return edits
+
+
 def _imp001_fix(
-    node: ast.ImportFrom, bad_aliases: list[ast.alias]
+    node: ast.ImportFrom,
+    bad_aliases: list[ast.alias],
+    tree: ast.Module,
 ) -> base.Fix | None:
     """Build the replacement for an IMP001 violation on *node*.
 
-    Converts non-module from-imports to module-level imports:
+    For dotted modules the import is rewritten one level up so the module
+    itself is imported via a from-import:
 
-    - Absolute: ``from os.path import join`` → ``import os.path``
-    - Relative: ``from .utils import Helper`` → ``from . import utils``
+    - ``from os.path import join`` → ``from os import path``
+    - ``from collections import OrderedDict`` → ``import collections``
+    - ``from .utils import Helper`` → ``from . import utils``
 
     Good aliases (those that resolve to real submodules) are preserved in a
-    separate from-import statement.  Returns ``None`` when no unambiguous fix
-    exists (e.g. ``from . import Name`` with no module component).
+    separate from-import statement.  Reference edits are attached to update
+    all Load-context uses of the imported names in the same file.
+
+    Returns ``None`` when no unambiguous fix exists (e.g. ``from . import
+    Name`` with no module component).
     """
     indent = " " * node.col_offset
     module = node.module or ""
@@ -73,23 +117,35 @@ def _imp001_fix(
         )
         parts.append(f"from {dots}{module} import {names_str}")
 
-    # Build the replacement import for the flagged module.
+    # Build the replacement import and determine the reference prefix
+    # (always the last component of the module path).
     if node.level == 0:
-        # Absolute: import the module directly.
+        # Absolute import.
         if not module:
             return None
-        parts.append(f"import {module}")
+        if "." in module:
+            parent, _, name = module.rpartition(".")
+            parts.append(f"from {parent} import {name}")
+            ref_prefix = name
+        else:
+            parts.append(f"import {module}")
+            ref_prefix = module
     else:
-        # Relative: convert from-import to a relative module import.
+        # Relative import.
         if not module:
             return None  # ``from . import Name`` — no module component.
         if "." in module:
             parent, _, name = module.rpartition(".")
             parts.append(f"from {dots}{parent} import {name}")
+            ref_prefix = name
         else:
             parts.append(f"from {dots} import {module}")
+            ref_prefix = module
 
-    return base.Fix(replacement=f"\n{indent}".join(parts))
+    return base.Fix(
+        replacement=f"\n{indent}".join(parts),
+        additional_edits=_imp001_ref_edits(node, bad_aliases, ref_prefix, tree),
+    )
 
 
 def _is_submodule(parent: str, name: str) -> bool:
@@ -154,7 +210,7 @@ class IMP001(base.Rule):
                     end_line=node.end_lineno or node.lineno,
                     end_col=node.end_col_offset or node.col_offset,
                     severity=base.Severity.WARNING,
-                    fix=_imp001_fix(node, bad_aliases),
+                    fix=_imp001_fix(node, bad_aliases, tree),
                 )
             )
         return diagnostics

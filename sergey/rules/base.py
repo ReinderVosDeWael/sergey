@@ -21,15 +21,35 @@ class Severity(enum.Enum):
 
 
 @dataclasses.dataclass
+class Edit:
+    """An additional text replacement at a specific location in the file.
+
+    Used by Fix.additional_edits to rewrite references when an import is
+    transformed.  Coordinates use 1-indexed lines and 0-indexed columns,
+    matching Diagnostic.
+    """
+
+    line: int  # 1-indexed
+    col: int  # 0-indexed
+    end_line: int
+    end_col: int
+    replacement: str
+
+
+@dataclasses.dataclass
 class Fix:
     """A text replacement that resolves a diagnostic.
 
     The replacement covers the range of the parent Diagnostic
     (line, col) → (end_line, end_col), using 1-indexed lines and
     0-indexed columns.
+
+    additional_edits carries any extra replacements (e.g. reference
+    renames) that must be applied together with the primary replacement.
     """
 
     replacement: str
+    additional_edits: list[Edit] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
