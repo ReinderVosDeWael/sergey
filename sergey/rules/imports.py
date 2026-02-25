@@ -44,6 +44,54 @@ def _imp003_fix(node: ast.Import) -> base.Fix:
     return base.Fix(replacement=f"\n{indent}".join(parts))
 
 
+def _imp001_fix(
+    node: ast.ImportFrom, bad_aliases: list[ast.alias]
+) -> base.Fix | None:
+    """Build the replacement for an IMP001 violation on *node*.
+
+    Converts non-module from-imports to module-level imports:
+
+    - Absolute: ``from os.path import join`` → ``import os.path``
+    - Relative: ``from .utils import Helper`` → ``from . import utils``
+
+    Good aliases (those that resolve to real submodules) are preserved in a
+    separate from-import statement.  Returns ``None`` when no unambiguous fix
+    exists (e.g. ``from . import Name`` with no module component).
+    """
+    indent = " " * node.col_offset
+    module = node.module or ""
+    dots = "." * node.level
+    parts: list[str] = []
+
+    # Keep submodule imports that were not flagged.
+    bad_ids = {id(a) for a in bad_aliases}
+    good_aliases = [a for a in node.names if id(a) not in bad_ids]
+    if good_aliases:
+        names_str = ", ".join(
+            f"{a.name} as {a.asname}" if a.asname else a.name
+            for a in good_aliases
+        )
+        parts.append(f"from {dots}{module} import {names_str}")
+
+    # Build the replacement import for the flagged module.
+    if node.level == 0:
+        # Absolute: import the module directly.
+        if not module:
+            return None
+        parts.append(f"import {module}")
+    else:
+        # Relative: convert from-import to a relative module import.
+        if not module:
+            return None  # ``from . import Name`` — no module component.
+        if "." in module:
+            parent, _, name = module.rpartition(".")
+            parts.append(f"from {dots}{parent} import {name}")
+        else:
+            parts.append(f"from {dots} import {module}")
+
+    return base.Fix(replacement=f"\n{indent}".join(parts))
+
+
 def _is_submodule(parent: str, name: str) -> bool:
     """Return True if `parent.name` resolves to an importable module or package."""
     try:
@@ -106,6 +154,7 @@ class IMP001(base.Rule):
                     end_line=node.end_lineno or node.lineno,
                     end_col=node.end_col_offset or node.col_offset,
                     severity=base.Severity.WARNING,
+                    fix=_imp001_fix(node, bad_aliases),
                 )
             )
         return diagnostics

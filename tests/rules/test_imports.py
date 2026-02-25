@@ -116,6 +116,96 @@ class TestIMP001:
 
 
 # ---------------------------------------------------------------------------
+# IMP001 — auto-fix
+# ---------------------------------------------------------------------------
+
+
+def _fix_imp001(source: str) -> list[base.Fix | None]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.fix for diag in imports.IMP001().check(tree, source)]
+
+
+class TestIMP001Fix:
+    def test_simple_absolute_import_fix(self) -> None:
+        fixes = _fix_imp001("from os.path import join")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "import os.path"
+
+    def test_top_level_module_fix(self) -> None:
+        fixes = _fix_imp001("from collections import OrderedDict")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "import collections"
+
+    def test_multiple_bad_names_one_import(self) -> None:
+        fixes = _fix_imp001("from os.path import join, exists, dirname")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "import os.path"
+
+    def test_aliased_bad_name_fix(self) -> None:
+        fixes = _fix_imp001("from os.path import join as path_join")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "import os.path"
+
+    def test_mixed_good_and_bad_aliases_fix(self) -> None:
+        # path is a submodule (kept), getcwd is a function (flagged)
+        fixes = _fix_imp001("from os import path, getcwd")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from os import path\nimport os"
+
+    def test_relative_import_with_module_fix(self) -> None:
+        fixes = _fix_imp001("from .utils import Helper")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from . import utils"
+
+    def test_relative_import_double_dot_fix(self) -> None:
+        fixes = _fix_imp001("from ..models import User")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from .. import models"
+
+    def test_relative_import_nested_module_fix(self) -> None:
+        fixes = _fix_imp001("from .pkg.sub import MyClass")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from .pkg import sub"
+
+    def test_indented_import_fix_preserves_indent(self) -> None:
+        source = textwrap.dedent("""\
+            def f():
+                from os.path import join
+        """)
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "import os.path"
+
+    def test_no_fix_for_bare_relative_import(self) -> None:
+        # from . import X has no module component — cannot determine fix
+        fixes = _fix_imp001("from . import SomeClass")
+        assert len(fixes) == 1
+        assert fixes[0] is None
+
+    def test_two_flagged_statements_two_fixes(self) -> None:
+        source = textwrap.dedent("""\
+            from os.path import join
+            from collections import OrderedDict
+        """)
+        fixes = _fix_imp001(source)
+        assert len(fixes) == 2
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "import os.path"
+        assert fixes[1] is not None
+        assert fixes[1].replacement == "import collections"
+
+
+# ---------------------------------------------------------------------------
 # IMP002 — typing from-imports
 # ---------------------------------------------------------------------------
 
