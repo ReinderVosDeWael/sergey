@@ -66,16 +66,30 @@ def _is_class_var(annotation: ast.expr) -> bool:
 
 
 #: Type names that are mutable and therefore disallowed on frozen models.
-_MUTABLE_TYPES: frozenset[str] = frozenset({
-    # builtins
-    "list", "dict", "set", "bytearray",
-    # typing / typing_extensions capitalized aliases
-    "List", "Dict", "Set", "Deque", "DefaultDict", "OrderedDict",
-    # collections
-    "deque", "Counter", "defaultdict",
-    # collections.abc explicitly-mutable ABCs
-    "MutableSequence", "MutableMapping", "MutableSet",
-})
+_MUTABLE_TYPES: frozenset[str] = frozenset(
+    {
+        # builtins
+        "list",
+        "dict",
+        "set",
+        "bytearray",
+        # typing / typing_extensions capitalized aliases
+        "List",
+        "Dict",
+        "Set",
+        "Deque",
+        "DefaultDict",
+        "OrderedDict",
+        # collections
+        "deque",
+        "Counter",
+        "defaultdict",
+        # collections.abc explicitly-mutable ABCs
+        "MutableSequence",
+        "MutableMapping",
+        "MutableSet",
+    }
+)
 
 
 def _mutable_types_in(annotation: ast.expr) -> list[str]:
@@ -90,9 +104,7 @@ def _mutable_types_in(annotation: ast.expr) -> list[str]:
     if isinstance(annotation, ast.Attribute):
         return [annotation.attr] if annotation.attr in _MUTABLE_TYPES else []
     if isinstance(annotation, ast.Subscript):
-        return _mutable_types_in(annotation.value) + _mutable_types_in(
-            annotation.slice
-        )
+        return _mutable_types_in(annotation.value) + _mutable_types_in(annotation.slice)
     if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
         return _mutable_types_in(annotation.left) + _mutable_types_in(annotation.right)
     if isinstance(annotation, ast.Tuple):
@@ -172,9 +184,8 @@ class PDT001(base.Rule):
                         severity=base.Severity.WARNING,
                     )
                 )
-            elif (
-                isinstance(config_value, ast.Call)
-                and not _has_frozen_kwarg(config_value)
+            elif isinstance(config_value, ast.Call) and not _has_frozen_kwarg(
+                config_value
             ):
                 diagnostics.append(
                     base.Diagnostic(
