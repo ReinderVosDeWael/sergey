@@ -28,7 +28,10 @@ def _to_lsp(diag: base.Diagnostic) -> types.Diagnostic:
             start=types.Position(line=diag.line - 1, character=diag.col),
             end=types.Position(line=diag.end_line - 1, character=diag.end_col),
         ),
-        message=f"{diag.rule_id} {diag.message}",
+        message=(
+                f"{diag.rule_id} {diag.message}\n"
+                f"To ignore: # sergey: noqa: {diag.rule_id}"
+            ),
         severity=severity_map[diag.severity],
         source="sergey",
     )

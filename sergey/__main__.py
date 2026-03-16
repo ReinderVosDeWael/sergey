@@ -163,6 +163,7 @@ def check(
         for diag in diagnostics:
             typer.echo(
                 f"{file_path}:{diag.line}:{diag.col}: {diag.rule_id} {diag.message}"
+                f"\n  To ignore: # sergey: noqa: {diag.rule_id}"
             )
         if diagnostics:
             found_any = True
