@@ -217,8 +217,8 @@ wheels = [
 ]
 
 [[package]]
-name = "sergey"
-version = "0.1.0"
+name = "sergey-lint"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "pygls" },
