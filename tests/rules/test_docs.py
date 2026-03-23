@@ -297,3 +297,202 @@ class TestDOC001:
         diags = docs.DOC001().check(tree, source)
         assert "`parse`" in diags[0].message
         assert "Raises" in diags[0].message
+
+    # ------------------------------------------------------------------
+    # Raises section present but missing specific exception class
+    # ------------------------------------------------------------------
+
+    def test_raises_section_documents_correct_exception_ok(self) -> None:
+        source = '''\
+            def foo():
+                """Summary.
+
+                Raises:
+                    ValueError: Always.
+                """
+                raise ValueError("always")
+        '''
+        assert _check_doc001(source) == []
+
+    def test_raises_section_wrong_exception_flagged(self) -> None:
+        source = '''\
+            def foo():
+                """Summary.
+
+                Raises:
+                    RuntimeError: Something.
+                """
+                raise ValueError("always")
+        '''
+        assert _check_doc001(source) == ["DOC001"]
+
+    def test_raises_section_partial_documentation_flagged(self) -> None:
+        source = '''\
+            def foo():
+                """Summary.
+
+                Raises:
+                    ValueError: One case.
+                """
+                raise ValueError("v")
+                raise RuntimeError("r")
+        '''
+        assert _check_doc001(source) == ["DOC001"]
+
+    def test_raises_section_all_exceptions_documented_ok(self) -> None:
+        source = '''\
+            def foo():
+                """Summary.
+
+                Raises:
+                    ValueError: First case.
+                    RuntimeError: Second case.
+                """
+                raise ValueError("v")
+                raise RuntimeError("r")
+        '''
+        assert _check_doc001(source) == []
+
+    def test_raises_section_duplicate_raises_one_diagnostic(self) -> None:
+        # Same exception raised twice — only one diagnostic expected.
+        source = '''\
+            def foo(x):
+                """Summary.
+
+                Raises:
+                    RuntimeError: Something.
+                """
+                if x < 0:
+                    raise ValueError("neg")
+                raise ValueError("other")
+        '''
+        assert _check_doc001(source) == ["DOC001"]
+
+    def test_numpy_raises_section_documents_exception_ok(self) -> None:
+        source = '''\
+            def foo():
+                """Summary.
+
+                Raises
+                ------
+                ValueError
+                    Always.
+                """
+                raise ValueError("always")
+        '''
+        assert _check_doc001(source) == []
+
+    def test_numpy_raises_section_wrong_exception_flagged(self) -> None:
+        source = '''\
+            def foo():
+                """Summary.
+
+                Raises
+                ------
+                RuntimeError
+                    Something.
+                """
+                raise ValueError("always")
+        '''
+        assert _check_doc001(source) == ["DOC001"]
+
+    def test_qualified_exception_class_checked(self) -> None:
+        # raise module.SomeError() — the attr "SomeError" is extracted.
+        source = '''\
+            def foo():
+                """Summary.
+
+                Raises:
+                    SomeError: Always.
+                """
+                raise module.SomeError("x")
+        '''
+        assert _check_doc001(source) == []
+
+    def test_qualified_exception_missing_flagged(self) -> None:
+        source = '''\
+            def foo():
+                """Summary.
+
+                Raises:
+                    OtherError: Something.
+                """
+                raise module.SomeError("x")
+        '''
+        assert _check_doc001(source) == ["DOC001"]
+
+    def test_variable_reraise_not_flagged(self) -> None:
+        # `raise exc` — lowercase name treated as variable, not a class.
+        source = '''\
+            def foo():
+                """Summary.
+
+                Raises:
+                    RuntimeError: On failure.
+                """
+                try:
+                    pass
+                except RuntimeError as exc:
+                    raise exc
+        '''
+        assert _check_doc001(source) == []
+
+    def test_exception_not_substring_matched(self) -> None:
+        # "Error" must not match "ValueError" — word-boundary check.
+        source = '''\
+            def foo():
+                """Summary.
+
+                Raises:
+                    ValueError: Always.
+                """
+                raise Error("x")
+        '''
+        assert _check_doc001(source) == ["DOC001"]
+
+    # ------------------------------------------------------------------
+    # Diagnostic metadata for per-exception diagnostics
+    # ------------------------------------------------------------------
+
+    def test_missing_exception_diagnostic_points_to_raise(self) -> None:
+        source = textwrap.dedent('''\
+            def foo():
+                """Summary.
+
+                Raises:
+                    RuntimeError: Something.
+                """
+                raise ValueError("x")
+        ''')
+        tree = ast.parse(source)
+        diags = docs.DOC001().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].line == 7  # the raise statement
+
+    def test_missing_exception_message_mentions_exception_name(self) -> None:
+        source = textwrap.dedent('''\
+            def foo():
+                """Summary.
+
+                Raises:
+                    RuntimeError: Something.
+                """
+                raise ValueError("x")
+        ''')
+        tree = ast.parse(source)
+        diags = docs.DOC001().check(tree, source)
+        assert "`ValueError`" in diags[0].message
+
+    def test_missing_exception_message_mentions_function_name(self) -> None:
+        source = textwrap.dedent('''\
+            def parse(text):
+                """Parse.
+
+                Raises:
+                    RuntimeError: Something.
+                """
+                raise ValueError("x")
+        ''')
+        tree = ast.parse(source)
+        diags = docs.DOC001().check(tree, source)
+        assert "`parse`" in diags[0].message
