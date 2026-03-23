@@ -5,9 +5,9 @@ from __future__ import annotations
 import abc
 import dataclasses
 import enum
-import typing
+from typing import TYPE_CHECKING
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     import ast
 
 

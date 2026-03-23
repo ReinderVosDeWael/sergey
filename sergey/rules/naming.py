@@ -128,11 +128,11 @@ class NAM003(base.Rule):
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            checked = [
+            checked = (
                 *node.args.posonlyargs,
                 *node.args.args,
                 *node.args.kwonlyargs,
-            ]
+            )
             diagnostics.extend(
                 base.Diagnostic(
                     rule_id="NAM003",

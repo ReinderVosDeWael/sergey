@@ -306,33 +306,33 @@ def _iter_scope(node: ast.AST) -> Iterator[ast.AST]:
         yield from _iter_scope(child)
 
 
-def _contains_name_ref(node: ast.AST, name: str) -> bool:
+def _has_name_ref(node: ast.AST, name: str) -> bool:
     """Return True if *node* contains a reference to *name*."""
     if isinstance(node, ast.Name) and node.id == name:
         return True
-    return any(_contains_name_ref(child, name) for child in ast.iter_child_nodes(node))
+    return any(_has_name_ref(child, name) for child in ast.iter_child_nodes(node))
 
 
-def _name_used_in_nested_scope(node: ast.AST, name: str) -> bool:
+def _is_name_used_in_nested_scope(node: ast.AST, name: str) -> bool:
     """Return True if *name* is referenced inside a nested scope under *node*."""
     for child in ast.iter_child_nodes(node):
         if isinstance(child, _SCOPE_TYPES):
             for inner in ast.walk(child):
                 if isinstance(inner, ast.Name) and inner.id == name:
                     return True
-        elif _name_used_in_nested_scope(child, name):
+        elif _is_name_used_in_nested_scope(child, name):
             return True
     return False
 
 
-def _target_has_name(target: ast.AST, name: str) -> bool:
+def _has_name_in_target(target: ast.AST, name: str) -> bool:
     """Return True if *target* binds *name* (handles tuple/list unpacking)."""
     if isinstance(target, ast.Name):
         return target.id == name
     if isinstance(target, (ast.Tuple, ast.List)):
-        return any(_target_has_name(elt, name) for elt in target.elts)
+        return any(_has_name_in_target(elt, name) for elt in target.elts)
     if isinstance(target, ast.Starred):
-        return _target_has_name(target.value, name)
+        return _has_name_in_target(target.value, name)
     return False
 
 
@@ -389,30 +389,30 @@ def _is_in_function_output(
         if (
             isinstance(node, ast.Return)
             and node.value is not None
-            and _contains_name_ref(node.value, name)
+            and _has_name_ref(node.value, name)
         ):
             return True
         if (
             isinstance(node, (ast.Yield, ast.YieldFrom))
             and node.value is not None
-            and _contains_name_ref(node.value, name)
+            and _has_name_ref(node.value, name)
         ):
             return True
     return False
 
 
-def _node_binds_name(node: ast.AST, name: str) -> bool:
+def _has_name_binding(node: ast.AST, name: str) -> bool:
     """Return True if *node* binds *name* through any form of assignment."""
     if isinstance(node, ast.Assign):
-        return any(_target_has_name(target, name) for target in node.targets)
+        return any(_has_name_in_target(target, name) for target in node.targets)
     if isinstance(node, ast.AnnAssign) and node.value is not None:
-        return _target_has_name(node.target, name)
+        return _has_name_in_target(node.target, name)
     if isinstance(node, (ast.For, ast.AsyncFor)):
-        return _target_has_name(node.target, name)
+        return _has_name_in_target(node.target, name)
     if isinstance(node, (ast.With, ast.AsyncWith)):
         return any(
             item.optional_vars is not None
-            and _target_has_name(item.optional_vars, name)
+            and _has_name_in_target(item.optional_vars, name)
             for item in node.items
         )
     if isinstance(node, ast.NamedExpr):
@@ -427,7 +427,7 @@ def _is_name_rebound(
 ) -> bool:
     """Return True if *name* is assigned more than once (ignoring *creation*)."""
     return any(
-        _node_binds_name(node, name)
+        _has_name_binding(node, name)
         for node in _iter_scope(func)
         if node is not creation
     )
@@ -444,7 +444,7 @@ def _has_global_or_nonlocal(
     return False
 
 
-def _does_escape(
+def _can_escape(
     func: ast.FunctionDef | ast.AsyncFunctionDef,
     name: str,
 ) -> bool:
@@ -452,7 +452,7 @@ def _does_escape(
     for node in _iter_scope(func):
         if not isinstance(node, ast.Assign):
             continue
-        if not _contains_name_ref(node.value, name):
+        if not _has_name_ref(node.value, name):
             continue
         for target in node.targets:
             if isinstance(target, (ast.Attribute, ast.Subscript)):
@@ -498,8 +498,8 @@ def _should_skip(
         or _is_name_rebound(func, name, assign_node)
         or _is_mutated(func, name, mutating_methods)
         or _is_in_function_output(func, name)
-        or _name_used_in_nested_scope(func, name)
-        or _does_escape(func, name)
+        or _is_name_used_in_nested_scope(func, name)
+        or _can_escape(func, name)
     )
 
 

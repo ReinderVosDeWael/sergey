@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import ast
 import re
-import typing
+from typing import TYPE_CHECKING
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from sergey.rules import base
 
 # Matches:  # sergey: noqa          (suppress all rules on this line)

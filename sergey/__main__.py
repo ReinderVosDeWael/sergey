@@ -1,7 +1,7 @@
 """Entry point: sergey [check <path>... | serve]."""
 
 import pathlib
-import typing
+from typing import Annotated
 
 import typer
 
@@ -33,8 +33,8 @@ def _apply_fixes(source: str, diagnostics: list[rules_base.Diagnostic]) -> str:
     for diag in reversed(unique):
         lines = source.splitlines(keepends=True)
         # Build character offsets for start and end of the diagnostic range.
-        start = sum(len(lines[i]) for i in range(diag.line - 1)) + diag.col
-        end = sum(len(lines[i]) for i in range(diag.end_line - 1)) + diag.end_col
+        start = sum(len(lines[idx]) for idx in range(diag.line - 1)) + diag.col
+        end = sum(len(lines[idx]) for idx in range(diag.end_line - 1)) + diag.end_col
         if diag.fix is None:  # pragma: no cover
             continue
         source = source[:start] + diag.fix.replacement + source[end:]
@@ -115,15 +115,15 @@ def _resolve_files(
 
 @app.command(no_args_is_help=True)
 def check(
-    paths: typing.Annotated[
+    paths: Annotated[
         list[pathlib.Path] | None,
         typer.Argument(help="Files or directories to check."),
     ] = None,
-    diff: typing.Annotated[  # noqa: FBT002
+    diff: Annotated[  # noqa: FBT002
         bool,
         typer.Option("--diff", help="Check .py files changed in the current git diff."),
     ] = False,
-    fix: typing.Annotated[  # noqa: FBT002
+    fix: Annotated[  # noqa: FBT002
         bool,
         typer.Option("--fix", help="Apply auto-fixes for fixable violations."),
     ] = False,
