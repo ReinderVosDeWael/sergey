@@ -1,4 +1,4 @@
-"""Pydantic rules: PDT001, PDT002."""
+"""Pydantic rules: PDT001, PDT002, PDT003."""
 
 import ast
 
@@ -257,6 +257,46 @@ def _check_frozen_model(node: ast.ClassDef) -> list[base.Diagnostic]:
     return diagnostics
 
 
+def _is_field_call(node: ast.expr) -> bool:
+    """Return True if the expression is a Field(...) call."""
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    return (isinstance(func, ast.Name) and func.id == "Field") or (
+        isinstance(func, ast.Attribute) and func.attr == "Field"
+    )
+
+
+def _is_frozen_declared(stmt: ast.AnnAssign) -> bool:
+    """Return True if the field has an explicit frozen= inside Field(...)."""
+    # Pattern 1 — default value:  name: str = Field(frozen=...)
+    if (
+        stmt.value is not None
+        and _is_field_call(stmt.value)
+        and isinstance(stmt.value, ast.Call)
+        and _has_frozen_kwarg(stmt.value)
+    ):
+        return True
+    # Pattern 2 — Annotated metadata:  name: Annotated[str, Field(frozen=...)]
+    ann = stmt.annotation
+    if not isinstance(ann, ast.Subscript):
+        return False
+    val = ann.value
+    is_annotated = (isinstance(val, ast.Name) and val.id == "Annotated") or (
+        isinstance(val, ast.Attribute) and val.attr == "Annotated"
+    )
+    if not is_annotated:
+        return False
+    slc = ann.slice
+    elts = slc.elts if isinstance(slc, ast.Tuple) else [slc]
+    return any(
+        _is_field_call(elt)
+        and isinstance(elt, ast.Call)
+        and _has_frozen_kwarg(elt)
+        for elt in elts
+    )
+
+
 class PDT002(base.Rule):
     """Flag mutable field types on frozen Pydantic models.
 
@@ -289,6 +329,96 @@ class PDT002(base.Rule):
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef) and _is_pydantic_model(node):
                     diagnostics.extend(_check_frozen_model(node))
+        except Exception:  # noqa: BLE001, S110
+            pass
+        return diagnostics
+
+
+def _check_field_frozen(
+    model_name: str,
+    stmt: ast.AnnAssign,
+) -> base.Diagnostic | None:
+    """Return a PDT003 diagnostic if stmt lacks a field-level frozen declaration."""
+    if not isinstance(stmt.target, ast.Name) or stmt.target.id == "model_config":
+        return None
+    if stmt.annotation is None or _is_class_var(stmt.annotation):
+        return None
+    if _is_frozen_declared(stmt):
+        return None
+    ann = stmt.annotation
+    return base.Diagnostic(
+        rule_id="PDT003",
+        message=(
+            f"Field `{stmt.target.id}` in non-frozen model"
+            f" `{model_name}` does not declare field-level"
+            f" frozen; add `Field(frozen=True)`"
+            f" or `Field(frozen=False)`"
+        ),
+        line=ann.lineno,
+        col=ann.col_offset,
+        end_line=ann.end_lineno or ann.lineno,
+        end_col=ann.end_col_offset or ann.col_offset,
+        severity=base.Severity.WARNING,
+    )
+
+
+def _check_non_frozen_model(node: ast.ClassDef) -> list[base.Diagnostic]:
+    """Return PDT003 diagnostics for fields missing frozen on a non-frozen model."""
+    config_value = _find_model_config(node)
+    if not (
+        config_value is not None
+        and isinstance(config_value, ast.Call)
+        and _is_config_dict_call(config_value)
+        and _has_frozen_kwarg(config_value)
+        and not _is_frozen_true(config_value)
+    ):
+        return []
+    diagnostics: list[base.Diagnostic] = []
+    for stmt in node.body:
+        if not isinstance(stmt, ast.AnnAssign):
+            continue
+        diag = _check_field_frozen(node.name, stmt)
+        if diag is not None:
+            diagnostics.append(diag)
+    return diagnostics
+
+
+class PDT003(base.Rule):
+    """Flag fields in non-frozen Pydantic models that don't declare field-level frozen.
+
+    When ``frozen=False`` is set at the model level, each individual field
+    must explicitly state whether it is frozen via ``Field(frozen=True)`` or
+    ``Field(frozen=False)``.  This forces a deliberate per-field immutability
+    decision rather than inheriting the model-wide mutable default silently.
+
+    The ``Field(frozen=...)`` may appear as the default value or inside an
+    ``Annotated`` annotation.  ``ClassVar`` fields and ``model_config`` are
+    excluded.
+
+    Allowed:
+        class Draft(BaseModel):
+            model_config = ConfigDict(frozen=False)
+            body: str = Field(frozen=False)
+            slug: str = Field(frozen=True)
+
+        class Draft(BaseModel):
+            model_config = ConfigDict(frozen=False)
+            body: Annotated[str, Field(frozen=False)]
+
+    Flagged:
+        class Draft(BaseModel):
+            model_config = ConfigDict(frozen=False)
+            body: str               # no Field(frozen=...) at all
+            slug: str = Field()     # Field present but frozen not set
+    """
+
+    def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
+        """Return a diagnostic for each field missing a field-level frozen setting."""
+        diagnostics: list[base.Diagnostic] = []
+        try:
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef) and _is_pydantic_model(node):
+                    diagnostics.extend(_check_non_frozen_model(node))
         except Exception:  # noqa: BLE001, S110
             pass
         return diagnostics

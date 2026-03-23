@@ -1,4 +1,4 @@
-"""Tests for PDT001 and PDT002 Pydantic rules."""
+"""Tests for PDT001, PDT002, and PDT003 Pydantic rules."""
 
 import ast
 import textwrap
@@ -497,3 +497,257 @@ class TestPDT002:
         tree = ast.parse(source)
         diags = pydantic.PDT002().check(tree, source)
         assert "`User`" in diags[0].message
+
+
+def _check_pdt003(source: str) -> list[str]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.rule_id for diag in pydantic.PDT003().check(tree, source)]
+
+
+class TestPDT003:
+    # ------------------------------------------------------------------
+    # Not applicable — never flagged
+    # ------------------------------------------------------------------
+
+    def test_plain_class_not_flagged(self) -> None:
+        assert _check_pdt003("class Foo: pass") == []
+
+    def test_non_pydantic_class_not_flagged(self) -> None:
+        source = """\
+            class Foo(Bar):
+                body: str
+        """
+        assert _check_pdt003(source) == []
+
+    def test_frozen_true_model_not_flagged(self) -> None:
+        # PDT003 only applies to non-frozen models
+        source = """\
+            class User(BaseModel):
+                model_config = ConfigDict(frozen=True)
+                name: str
+        """
+        assert _check_pdt003(source) == []
+
+    def test_no_model_config_not_flagged(self) -> None:
+        # PDT001 catches this; PDT003 only activates on explicit frozen=False
+        source = """\
+            class User(BaseModel):
+                name: str
+        """
+        assert _check_pdt003(source) == []
+
+    def test_frozen_kwarg_absent_not_flagged(self) -> None:
+        source = """\
+            class User(BaseModel):
+                model_config = ConfigDict()
+                name: str
+        """
+        assert _check_pdt003(source) == []
+
+    def test_model_config_not_config_dict_not_flagged(self) -> None:
+        source = """\
+            class User(BaseModel):
+                model_config = {"frozen": False}
+                name: str
+        """
+        assert _check_pdt003(source) == []
+
+    # ------------------------------------------------------------------
+    # Non-frozen models with correct per-field frozen declarations — OK
+    # ------------------------------------------------------------------
+
+    def test_field_frozen_false_ok(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: str = Field(frozen=False)
+        """
+        assert _check_pdt003(source) == []
+
+    def test_field_frozen_true_ok(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                slug: str = Field(frozen=True)
+        """
+        assert _check_pdt003(source) == []
+
+    def test_annotated_field_frozen_ok(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: Annotated[str, Field(frozen=False)]
+        """
+        assert _check_pdt003(source) == []
+
+    def test_annotated_field_frozen_true_ok(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                slug: Annotated[str, Field(frozen=True)]
+        """
+        assert _check_pdt003(source) == []
+
+    def test_annotated_with_extra_metadata_ok(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: Annotated[str, "description", Field(frozen=False)]
+        """
+        assert _check_pdt003(source) == []
+
+    def test_class_var_not_flagged(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                registry: ClassVar[list[str]] = []
+                body: str = Field(frozen=False)
+        """
+        assert _check_pdt003(source) == []
+
+    def test_model_config_field_not_flagged(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: str = Field(frozen=False)
+        """
+        assert _check_pdt003(source) == []
+
+    def test_qualified_field_call_ok(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: str = pydantic.Field(frozen=False)
+        """
+        assert _check_pdt003(source) == []
+
+    def test_qualified_config_dict_ok(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = pydantic.ConfigDict(frozen=False)
+                body: str = Field(frozen=False)
+        """
+        assert _check_pdt003(source) == []
+
+    def test_multiple_fields_all_declared_ok(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: str = Field(frozen=False)
+                slug: str = Field(frozen=True)
+                count: int = Field(frozen=False)
+        """
+        assert _check_pdt003(source) == []
+
+    # ------------------------------------------------------------------
+    # Non-frozen models with missing field-level frozen — flagged
+    # ------------------------------------------------------------------
+
+    def test_bare_annotation_flagged(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: str
+        """
+        assert _check_pdt003(source) == ["PDT003"]
+
+    def test_field_without_frozen_kwarg_flagged(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: str = Field(default="")
+        """
+        assert _check_pdt003(source) == ["PDT003"]
+
+    def test_annotated_field_without_frozen_flagged(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: Annotated[str, Field(default="")]
+        """
+        assert _check_pdt003(source) == ["PDT003"]
+
+    def test_two_bare_fields_two_diagnostics(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: str
+                slug: str
+        """
+        assert _check_pdt003(source) == ["PDT003", "PDT003"]
+
+    def test_one_declared_one_missing_one_diagnostic(self) -> None:
+        source = """\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: str = Field(frozen=False)
+                slug: str
+        """
+        assert _check_pdt003(source) == ["PDT003"]
+
+    def test_only_non_frozen_model_flagged_among_two(self) -> None:
+        source = """\
+            class Good(BaseModel):
+                model_config = ConfigDict(frozen=True)
+                name: str
+
+            class Bad(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                name: str
+        """
+        assert _check_pdt003(source) == ["PDT003"]
+
+    # ------------------------------------------------------------------
+    # Diagnostic metadata
+    # ------------------------------------------------------------------
+
+    def test_rule_id_is_pdt003(self) -> None:
+        source = textwrap.dedent("""\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: str
+        """)
+        tree = ast.parse(source)
+        diags = pydantic.PDT003().check(tree, source)
+        assert diags[0].rule_id == "PDT003"
+
+    def test_diagnostic_points_to_annotation(self) -> None:
+        source = textwrap.dedent("""\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: str
+        """)
+        tree = ast.parse(source)
+        diags = pydantic.PDT003().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].line == 3
+
+    def test_message_mentions_field_name(self) -> None:
+        source = textwrap.dedent("""\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: str
+        """)
+        tree = ast.parse(source)
+        diags = pydantic.PDT003().check(tree, source)
+        assert "`body`" in diags[0].message
+
+    def test_message_mentions_model_name(self) -> None:
+        source = textwrap.dedent("""\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: str
+        """)
+        tree = ast.parse(source)
+        diags = pydantic.PDT003().check(tree, source)
+        assert "`Draft`" in diags[0].message
+
+    def test_message_mentions_frozen(self) -> None:
+        source = textwrap.dedent("""\
+            class Draft(BaseModel):
+                model_config = ConfigDict(frozen=False)
+                body: str
+        """)
+        tree = ast.parse(source)
+        diags = pydantic.PDT003().check(tree, source)
+        assert "frozen" in diags[0].message
