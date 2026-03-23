@@ -2,11 +2,12 @@
 
 import ast
 import re
+from typing import Final
 
 from sergey.rules import base
 
 # Scope boundaries: raises inside these nodes belong to a different function.
-_NESTED_SCOPE: tuple[type[ast.AST], ...] = (
+_NESTED_SCOPE: Final[tuple[type[ast.AST], ...]] = (
     ast.FunctionDef,
     ast.AsyncFunctionDef,
     ast.ClassDef,

@@ -4,21 +4,21 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from sergey.rules import base
 
 # Matches:  # sergey: noqa          (suppress all rules on this line)
 #           # sergey: noqa: IMP001  (suppress specific rules on this line)
-_LINE_NOQA_PAT = re.compile(
+_LINE_NOQA_PAT: Final = re.compile(
     r"#\s*sergey:\s*noqa(?::\s*([A-Z0-9][A-Z0-9,\s]*))?",
     re.IGNORECASE,
 )
 
 # Matches:  # sergey: disable-file           (suppress all rules in this file)
 #           # sergey: disable-file: IMP001   (suppress specific rules in this file)
-_FILE_DISABLE_PAT = re.compile(
+_FILE_DISABLE_PAT: Final = re.compile(
     r"#\s*sergey:\s*disable-file(?::\s*([A-Z0-9][A-Z0-9,\s]*))?",
     re.IGNORECASE,
 )

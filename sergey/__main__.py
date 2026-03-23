@@ -1,7 +1,7 @@
 """Entry point: sergey [check <path>... | serve]."""
 
 import pathlib
-from typing import Annotated
+from typing import Annotated, Final
 
 import typer
 
@@ -42,7 +42,7 @@ def _apply_fixes(source: str, diagnostics: list[rules_base.Diagnostic]) -> str:
 
 
 # Directories that are never interesting to analyse.
-_SKIP_DIRS: frozenset[str] = frozenset(
+_SKIP_DIRS: Final[frozenset[str]] = frozenset(
     {".venv", "venv", "__pycache__", ".git", "node_modules", "build", "dist", ".tox"}
 )
 

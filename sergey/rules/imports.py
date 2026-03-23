@@ -2,22 +2,23 @@
 
 import ast
 from importlib import util as importlib_util
+from typing import Final
 
 from sergey.rules import base
 
 # Modules excluded from IMP001 — covered by IMP002/IMP004 or are special syntax.
-_IMP001_EXCLUDED: frozenset[str] = frozenset(
+_IMP001_EXCLUDED: Final[frozenset[str]] = frozenset(
     {"__future__", "typing", "typing_extensions", "collections.abc"}
 )
 
 # Typing modules covered by IMP002.
-_TYPING_MODULES: frozenset[str] = frozenset({"typing", "typing_extensions"})
+_TYPING_MODULES: Final[frozenset[str]] = frozenset({"typing", "typing_extensions"})
 
 # Modules excluded from IMP003 — they are covered by a more specific rule.
-_IMP003_EXCLUDED: frozenset[str] = frozenset({"collections.abc"})
+_IMP003_EXCLUDED: Final[frozenset[str]] = frozenset({"collections.abc"})
 
 # Collections modules covered by IMP004.
-_COLLECTIONS_MODULES: frozenset[str] = frozenset({"collections.abc"})
+_COLLECTIONS_MODULES: Final[frozenset[str]] = frozenset({"collections.abc"})
 
 
 def _imp003_fix(node: ast.Import) -> base.Fix:

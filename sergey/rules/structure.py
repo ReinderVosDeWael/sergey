@@ -1,13 +1,14 @@
-"""Structure rules: STR002, STR003, STR004."""
+"""Structure rules: STR002, STR003, STR004, STR005, STR006."""
 
 import ast
 from collections.abc import Iterator
+from typing import Final
 
 from sergey.rules import base
 
-_MAX_DEPTH: int = 4
+_MAX_DEPTH: Final[int] = 4
 
-_SCOPE_TYPES: tuple[type[ast.AST], ...] = (
+_SCOPE_TYPES: Final[tuple[type[ast.AST], ...]] = (
     ast.FunctionDef,
     ast.AsyncFunctionDef,
     ast.ClassDef,
@@ -15,9 +16,11 @@ _SCOPE_TYPES: tuple[type[ast.AST], ...] = (
 )
 
 # ast.TryStar (try/except*) was added in Python 3.11.
-_TRY_STAR: tuple[type[ast.AST], ...] = (ast.TryStar,) if hasattr(ast, "TryStar") else ()
+_TRY_STAR: Final[tuple[type[ast.AST], ...]] = (
+    (ast.TryStar,) if hasattr(ast, "TryStar") else ()
+)
 
-_OTHER_NESTING: tuple[type[ast.AST], ...] = (
+_OTHER_NESTING: Final[tuple[type[ast.AST], ...]] = (
     ast.For,
     ast.AsyncFor,
     ast.While,
@@ -134,7 +137,7 @@ class STR002(base.Rule):
         return diagnostics
 
 
-_DEFAULT_MAX_TRY_BODY: int = 4
+_DEFAULT_MAX_TRY_BODY: Final[int] = 4
 
 
 def _child_stmt_lists(node: ast.AST) -> list[list[ast.stmt]]:
@@ -266,7 +269,7 @@ class STR003(base.Rule):
 # STR004 — prefer tuples/frozensets for unmodified lists/sets
 # ---------------------------------------------------------------------------
 
-_LIST_MUTATING_METHODS: frozenset[str] = frozenset(
+_LIST_MUTATING_METHODS: Final[frozenset[str]] = frozenset(
     {
         "append",
         "clear",
@@ -279,7 +282,7 @@ _LIST_MUTATING_METHODS: frozenset[str] = frozenset(
     }
 )
 
-_SET_MUTATING_METHODS: frozenset[str] = frozenset(
+_SET_MUTATING_METHODS: Final[frozenset[str]] = frozenset(
     {
         "add",
         "clear",
@@ -460,7 +463,7 @@ def _can_escape(
     return False
 
 
-_MUTABLE_LITERAL_TYPES: tuple[type[ast.expr], ...] = (ast.List, ast.Set)
+_MUTABLE_LITERAL_TYPES: Final[tuple[type[ast.expr], ...]] = (ast.List, ast.Set)
 
 
 def _collect_literal_assignments(
@@ -503,7 +506,7 @@ def _should_skip(
     )
 
 
-_IMMUTABLE_SUGGESTION: dict[type[ast.expr], tuple[str, str, frozenset[str]]] = {
+_IMMUTABLE_SUGGESTION: Final[dict[type[ast.expr], tuple[str, str, frozenset[str]]]] = {
     ast.List: ("List", "tuple", _LIST_MUTATING_METHODS),
     ast.Set: ("Set", "frozenset", _SET_MUTATING_METHODS),
 }
@@ -589,3 +592,212 @@ class STR004(base.Rule):
                 )
             )
         return diagnostics
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers for STR005 / STR006
+# ---------------------------------------------------------------------------
+
+
+def _is_constant_name(name: str) -> bool:
+    """Return True if name follows the SCREAMING_SNAKE_CASE constant convention.
+
+    Dunder names (``__all__``, ``__version__``, etc.) are exempt because they
+    are special module attributes with their own conventions.
+    """
+    if name.startswith("__") and name.endswith("__"):
+        return False
+    alpha = [ch for ch in name if ch.isalpha()]
+    return bool(alpha) and all(ch.isupper() for ch in alpha)
+
+
+def _has_final_annotation(annotation: ast.expr) -> bool:
+    """Return True if annotation is or wraps ``Final`` / ``typing.Final``."""
+    if isinstance(annotation, ast.Name):
+        return annotation.id == "Final"
+    if isinstance(annotation, ast.Attribute):
+        return annotation.attr == "Final"
+    if isinstance(annotation, ast.Subscript):
+        return _has_final_annotation(annotation.value)
+    return False
+
+
+# ---------------------------------------------------------------------------
+# STR005
+# ---------------------------------------------------------------------------
+
+
+def _check_constant_final(name: str, node: ast.stmt) -> base.Diagnostic | None:
+    """Return a STR005 diagnostic if a constant name lacks a Final annotation."""
+    if not _is_constant_name(name):
+        return None
+    return base.Diagnostic(
+        rule_id="STR005",
+        message=(
+            f"Module-level constant `{name}` is not annotated `Final`;"
+            f" use `{name}: Final = ...`"
+        ),
+        line=node.lineno,
+        col=node.col_offset,
+        end_line=node.end_lineno or node.lineno,
+        end_col=node.end_col_offset or node.col_offset,
+        severity=base.Severity.WARNING,
+    )
+
+
+def _finals_for_assign(node: ast.Assign) -> list[base.Diagnostic]:
+    """Return STR005 diagnostics for each constant target in an assignment."""
+    result: list[base.Diagnostic] = []
+    for target in node.targets:
+        if isinstance(target, ast.Name):
+            diag = _check_constant_final(target.id, node)
+            if diag is not None:
+                result.append(diag)
+    return result
+
+
+def _check_module_finals(tree: ast.Module) -> list[base.Diagnostic]:
+    """Return STR005 diagnostics for all unannotated constants in tree.body."""
+    diagnostics: list[base.Diagnostic] = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            diagnostics.extend(_finals_for_assign(node))
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.value is not None
+            and not _has_final_annotation(node.annotation)
+        ):
+            diag = _check_constant_final(node.target.id, node)
+            if diag is not None:
+                diagnostics.append(diag)
+    return diagnostics
+
+
+class STR005(base.Rule):
+    """Flag module-level constants that are not annotated ``Final``.
+
+    Every SCREAMING_SNAKE_CASE name assigned at module scope must carry a
+    ``Final`` annotation so that static type checkers can enforce that it is
+    never reassigned.  This mirrors Rust's ``const`` / Haskell's top-level
+    immutable binding — making the intent of "this value never changes"
+    explicit and machine-verifiable.
+
+    Dunder names (``__all__``, ``__version__``, etc.) are exempt.  Names
+    inside functions, classes, ``if`` blocks, or ``try`` blocks are not
+    checked — only direct ``tree.body`` assignments.
+
+    Allowed:
+        MAX_SIZE: Final = 100
+        MAX_SIZE: Final[int] = 100
+        MAX_SIZE: typing.Final = 100
+
+    Flagged:
+        MAX_SIZE = 100          # plain assignment, no annotation
+        MAX_SIZE: int = 100     # annotated but not Final
+    """
+
+    def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
+        """Return a diagnostic for each constant missing a Final annotation."""
+        try:
+            return _check_module_finals(tree)
+        except Exception:  # noqa: BLE001, S110
+            pass
+        return []
+
+
+# ---------------------------------------------------------------------------
+# STR006
+# ---------------------------------------------------------------------------
+
+_MODULE_MUTABLE_SUGGESTION: Final[dict[type[ast.expr], tuple[str, str]]] = {
+    ast.List: ("list", "tuple"),
+    ast.Set: ("set", "frozenset"),
+}
+
+
+def _check_constant_mutable(
+    name: str,
+    value: ast.expr,
+) -> base.Diagnostic | None:
+    """Return a STR006 diagnostic if a constant is assigned a mutable literal."""
+    if not _is_constant_name(name):
+        return None
+    entry = _MODULE_MUTABLE_SUGGESTION.get(type(value))
+    if entry is None:
+        return None
+    kind_label, suggestion = entry
+    return base.Diagnostic(
+        rule_id="STR006",
+        message=(
+            f"Module-level constant `{name}` uses a mutable `{kind_label}`"
+            f" literal; use `{suggestion}` instead"
+        ),
+        line=value.lineno,
+        col=value.col_offset,
+        end_line=value.end_lineno or value.lineno,
+        end_col=value.end_col_offset or value.col_offset,
+        severity=base.Severity.WARNING,
+    )
+
+
+def _mutables_for_assign(node: ast.Assign) -> list[base.Diagnostic]:
+    """Return STR006 diagnostics for each constant target in an assignment."""
+    if not isinstance(node.value, tuple(_MODULE_MUTABLE_SUGGESTION)):
+        return []
+    result: list[base.Diagnostic] = []
+    for target in node.targets:
+        if isinstance(target, ast.Name):
+            diag = _check_constant_mutable(target.id, node.value)
+            if diag is not None:
+                result.append(diag)
+    return result
+
+
+def _check_module_mutables(tree: ast.Module) -> list[base.Diagnostic]:
+    """Return STR006 diagnostics for all mutable constant literals in tree.body."""
+    diagnostics: list[base.Diagnostic] = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            diagnostics.extend(_mutables_for_assign(node))
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and node.value is not None
+            and isinstance(node.value, tuple(_MODULE_MUTABLE_SUGGESTION))
+            and isinstance(node.target, ast.Name)
+        ):
+            diag = _check_constant_mutable(node.target.id, node.value)
+            if diag is not None:
+                diagnostics.append(diag)
+    return diagnostics
+
+
+class STR006(base.Rule):
+    """Flag module-level constants assigned mutable ``list`` or ``set`` literals.
+
+    ``Final`` prevents a name from being *rebound* but does nothing to prevent
+    the underlying collection from being mutated in place.  A constant list or
+    set should be a ``tuple`` or ``frozenset`` so that immutability is enforced
+    at the value level as well.
+
+    Only plain literals (``[...]`` and ``{...}``) at module scope are checked.
+    Dict literals, constructor calls, and comprehensions are not covered.
+    Names inside functions, classes, or nested blocks are not checked — those
+    are handled by STR004.
+
+    Allowed:
+        ITEMS: Final = (1, 2, 3)
+        TAGS: Final = frozenset({"a", "b"})
+
+    Flagged:
+        ITEMS = [1, 2, 3]           # mutable list literal
+        TAGS: Final = {"a", "b"}    # Final doesn't prevent set.add()
+    """
+
+    def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
+        """Return a diagnostic for each constant assigned a mutable literal."""
+        try:
+            return _check_module_mutables(tree)
+        except Exception:  # noqa: BLE001, S110
+            pass
+        return []

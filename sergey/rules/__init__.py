@@ -1,8 +1,10 @@
 """All sergey rules."""
 
+from typing import Final
+
 from sergey.rules import base, docs, imports, naming, pydantic, structure
 
-ALL_RULES: list[base.Rule] = [
+ALL_RULES: Final[tuple[base.Rule, ...]] = (
     docs.DOC001(),
     imports.IMP001(),
     imports.IMP002(),
@@ -17,6 +19,8 @@ ALL_RULES: list[base.Rule] = [
     structure.STR002(),
     structure.STR003(),
     structure.STR004(),
-]
+    structure.STR005(),
+    structure.STR006(),
+)
 
 __all__ = ["ALL_RULES"]

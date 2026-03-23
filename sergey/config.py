@@ -8,6 +8,8 @@ import tomllib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sergey.rules import base
 
 
@@ -86,7 +88,7 @@ def load_config(start: pathlib.Path | None = None) -> Config:
 
 
 def configure_rules(
-    active_rules: list[base.Rule],
+    active_rules: Sequence[base.Rule],
     config: Config,
 ) -> list[base.Rule]:
     """Return rules with per-rule options from config applied.
@@ -110,7 +112,7 @@ def configure_rules(
 
 
 def filter_rules(
-    all_rules: list[base.Rule],
+    all_rules: Sequence[base.Rule],
     config: Config,
 ) -> list[base.Rule]:
     """Return the subset of *all_rules* allowed by *config*.
@@ -120,13 +122,13 @@ def filter_rules(
     which matches the rule ID (e.g. ``PDT001``).
 
     Args:
-        all_rules: Full list of available rule instances.
+        all_rules: Available rule instances.
         config: The active configuration.
 
     Returns:
         Filtered list preserving the original order.
     """
-    active = all_rules
+    active: list[base.Rule] = list(all_rules)
     if config.select is not None:
         active = [rule for rule in active if type(rule).__name__ in config.select]
     if config.ignore:

@@ -1,4 +1,4 @@
-"""Tests for STR002, STR003, and STR004 structure rules."""
+"""Tests for STR002, STR003, STR004, STR005, and STR006 structure rules."""
 
 import ast
 import textwrap
@@ -1094,4 +1094,250 @@ class TestSTR004:
         assert len(diags) == 1
         assert "tags" in diags[0].message
         assert "Set" in diags[0].message
+
+
+# ---------------------------------------------------------------------------
+# STR005 — module-level constants must be annotated Final
+# ---------------------------------------------------------------------------
+
+
+def _check_str005(source: str) -> list[str]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.rule_id for diag in structure.STR005().check(tree, source)]
+
+
+class TestSTR005:
+    # ------------------------------------------------------------------
+    # Not flagged
+    # ------------------------------------------------------------------
+
+    def test_final_annotation_ok(self) -> None:
+        assert _check_str005("MAX: Final = 100") == []
+
+    def test_final_subscript_ok(self) -> None:
+        assert _check_str005("MAX: Final[int] = 100") == []
+
+    def test_qualified_final_ok(self) -> None:
+        assert _check_str005("MAX: typing.Final = 100") == []
+
+    def test_qualified_final_subscript_ok(self) -> None:
+        assert _check_str005("MAX: typing.Final[int] = 100") == []
+
+    def test_lowercase_name_not_flagged(self) -> None:
+        assert _check_str005("max_size = 100") == []
+
+    def test_mixed_case_not_flagged(self) -> None:
+        assert _check_str005("MaxSize = 100") == []
+
+    def test_dunder_all_exempt(self) -> None:
+        assert _check_str005("__all__ = ['foo']") == []
+
+    def test_dunder_version_exempt(self) -> None:
+        assert _check_str005('__version__ = "1.0"') == []
+
+    def test_ann_assign_no_value_not_flagged(self) -> None:
+        # Forward declaration with no assignment — nothing to enforce.
+        assert _check_str005("MAX: int") == []
+
+    def test_inside_function_not_flagged(self) -> None:
+        source = """\
+            def foo():
+                MAX = 100
+        """
+        assert _check_str005(source) == []
+
+    def test_inside_class_not_flagged(self) -> None:
+        source = """\
+            class Foo:
+                MAX = 100
+        """
+        assert _check_str005(source) == []
+
+    def test_inside_if_block_not_flagged(self) -> None:
+        source = """\
+            if True:
+                MAX = 100
+        """
+        assert _check_str005(source) == []
+
+    def test_private_constant_with_final_ok(self) -> None:
+        assert _check_str005("_MAX: Final = 100") == []
+
+    # ------------------------------------------------------------------
+    # Flagged
+    # ------------------------------------------------------------------
+
+    def test_plain_assign_flagged(self) -> None:
+        assert _check_str005("MAX = 100") == ["STR005"]
+
+    def test_annotated_non_final_flagged(self) -> None:
+        assert _check_str005("MAX: int = 100") == ["STR005"]
+
+    def test_private_constant_flagged(self) -> None:
+        assert _check_str005("_MAX = 100") == ["STR005"]
+
+    def test_two_constants_two_diagnostics(self) -> None:
+        source = """\
+            A = 1
+            B = 2
+        """
+        assert _check_str005(source) == ["STR005", "STR005"]
+
+    def test_chained_assign_flags_each_name(self) -> None:
+        # A = B = 1 — both targets are constant names.
+        assert _check_str005("A = B = 1") == ["STR005", "STR005"]
+
+    def test_good_and_bad_mixed(self) -> None:
+        source = """\
+            A: Final = 1
+            B = 2
+        """
+        assert _check_str005(source) == ["STR005"]
+
+    # ------------------------------------------------------------------
+    # Diagnostic metadata
+    # ------------------------------------------------------------------
+
+    def test_rule_id(self) -> None:
+        source = "MAX = 100"
+        tree = ast.parse(source)
+        diags = structure.STR005().check(tree, source)
+        assert diags[0].rule_id == "STR005"
+
+    def test_diagnostic_points_to_assignment(self) -> None:
+        source = textwrap.dedent("""\
+            x = 1
+            MAX = 100
+        """)
+        tree = ast.parse(source)
+        diags = structure.STR005().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].line == 2
+
+    def test_message_mentions_name(self) -> None:
+        source = "MAX_SIZE = 100"
+        tree = ast.parse(source)
+        diags = structure.STR005().check(tree, source)
+        assert "`MAX_SIZE`" in diags[0].message
+
+    def test_message_mentions_final(self) -> None:
+        source = "MAX_SIZE = 100"
+        tree = ast.parse(source)
+        diags = structure.STR005().check(tree, source)
+        assert "Final" in diags[0].message
+
+
+# ---------------------------------------------------------------------------
+# STR006 — module-level constants must not use mutable literals
+# ---------------------------------------------------------------------------
+
+
+def _check_str006(source: str) -> list[str]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.rule_id for diag in structure.STR006().check(tree, source)]
+
+
+class TestSTR006:
+    # ------------------------------------------------------------------
+    # Not flagged
+    # ------------------------------------------------------------------
+
+    def test_tuple_literal_ok(self) -> None:
+        assert _check_str006("ITEMS: Final = (1, 2, 3)") == []
+
+    def test_frozenset_call_ok(self) -> None:
+        # frozenset() is a call, not a set literal — not flagged by this rule.
+        assert _check_str006('TAGS: Final = frozenset({"a", "b"})') == []
+
+    def test_int_literal_ok(self) -> None:
+        assert _check_str006("MAX = 100") == []
+
+    def test_string_literal_ok(self) -> None:
+        assert _check_str006('NAME = "hello"') == []
+
+    def test_lowercase_list_not_flagged(self) -> None:
+        # Not a constant name — STR006 does not apply.
+        assert _check_str006("items = [1, 2, 3]") == []
+
+    def test_dunder_exempt(self) -> None:
+        assert _check_str006("__all__ = ['foo']") == []
+
+    def test_list_inside_function_not_flagged(self) -> None:
+        # STR004 handles function-scope mutable literals.
+        source = """\
+            def foo():
+                ITEMS = [1, 2, 3]
+        """
+        assert _check_str006(source) == []
+
+    def test_list_inside_class_not_flagged(self) -> None:
+        source = """\
+            class Foo:
+                ITEMS = [1, 2, 3]
+        """
+        assert _check_str006(source) == []
+
+    # ------------------------------------------------------------------
+    # Flagged
+    # ------------------------------------------------------------------
+
+    def test_list_literal_flagged(self) -> None:
+        assert _check_str006("ITEMS = [1, 2, 3]") == ["STR006"]
+
+    def test_set_literal_flagged(self) -> None:
+        assert _check_str006("TAGS = {1, 2, 3}") == ["STR006"]
+
+    def test_list_with_final_still_flagged(self) -> None:
+        # Final prevents reassignment but not in-place mutation.
+        assert _check_str006("ITEMS: Final = [1, 2, 3]") == ["STR006"]
+
+    def test_set_with_final_still_flagged(self) -> None:
+        assert _check_str006("TAGS: Final = {1, 2, 3}") == ["STR006"]
+
+    def test_two_mutable_constants_two_diagnostics(self) -> None:
+        source = """\
+            A = [1]
+            B = {2}
+        """
+        assert _check_str006(source) == ["STR006", "STR006"]
+
+    # ------------------------------------------------------------------
+    # Diagnostic metadata
+    # ------------------------------------------------------------------
+
+    def test_rule_id(self) -> None:
+        source = "ITEMS = [1, 2, 3]"
+        tree = ast.parse(source)
+        diags = structure.STR006().check(tree, source)
+        assert diags[0].rule_id == "STR006"
+
+    def test_diagnostic_points_to_literal(self) -> None:
+        source = textwrap.dedent("""\
+            x = 1
+            ITEMS = [1, 2, 3]
+        """)
+        tree = ast.parse(source)
+        diags = structure.STR006().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].line == 2
+
+    def test_message_mentions_name(self) -> None:
+        source = "ITEMS = [1, 2, 3]"
+        tree = ast.parse(source)
+        diags = structure.STR006().check(tree, source)
+        assert "`ITEMS`" in diags[0].message
+
+    def test_message_mentions_list_and_tuple(self) -> None:
+        source = "ITEMS = [1, 2, 3]"
+        tree = ast.parse(source)
+        diags = structure.STR006().check(tree, source)
+        assert "list" in diags[0].message
+        assert "tuple" in diags[0].message
+
+    def test_message_mentions_set_and_frozenset(self) -> None:
+        source = "TAGS = {1, 2, 3}"
+        tree = ast.parse(source)
+        diags = structure.STR006().check(tree, source)
+        assert "set" in diags[0].message
+        assert "frozenset" in diags[0].message
         assert "frozenset" in diags[0].message

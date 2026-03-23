@@ -1,10 +1,11 @@
 """Naming rules: NAM001, NAM002, NAM003."""
 
 import ast
+from typing import Final
 
 from sergey.rules import base
 
-_PREDICATE_PREFIXES: frozenset[str] = frozenset(
+_PREDICATE_PREFIXES: Final[frozenset[str]] = frozenset(
     {"is_", "has_", "can_", "should_", "will_", "did_", "was_"}
 )
 

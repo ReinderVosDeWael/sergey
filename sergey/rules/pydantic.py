@@ -1,6 +1,7 @@
 """Pydantic rules: PDT001, PDT002, PDT003."""
 
 import ast
+from typing import Final
 
 from sergey.rules import base
 
@@ -66,7 +67,7 @@ def _is_class_var(annotation: ast.expr) -> bool:
 
 
 #: Type names that are mutable and therefore disallowed on frozen models.
-_MUTABLE_TYPES: frozenset[str] = frozenset(
+_MUTABLE_TYPES: Final[frozenset[str]] = frozenset(
     {
         # builtins
         "list",
