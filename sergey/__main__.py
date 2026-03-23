@@ -1,4 +1,4 @@
-"""Entry point: sergey [check <path>... | serve]."""
+"""Entry point: sergey [check <path>... | server]."""
 
 import pathlib
 from typing import Annotated, Final
@@ -171,12 +171,12 @@ def check(
         raise typer.Exit(code=1)
 
 
-@app.command(no_args_is_help=True)
-def serve() -> None:
+@app.command(no_args_is_help=False)
+def server() -> None:
     """Run the LSP server over stdio."""
-    from sergey import server  # noqa: PLC0415
+    from sergey import server as sergey_server  # noqa: PLC0415
 
-    server.start()
+    sergey_server.start()
 
 
 def main() -> None:
