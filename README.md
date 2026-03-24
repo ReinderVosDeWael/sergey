@@ -65,6 +65,7 @@ The four rules together enforce a consistent import style: every name you use is
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **PDT001** | Every `BaseModel` subclass must have `model_config = ConfigDict(frozen=...)` with `frozen` explicitly set. This forces a deliberate decision about mutability. Both `frozen=True` and `frozen=False` are accepted; omitting `frozen` or omitting `model_config` entirely is flagged. |
 | **PDT002** | Frozen `BaseModel` subclasses (`frozen=True`) must not have fields annotated with mutable types such as `list`, `dict`, `set`, `deque`, etc. Use immutable alternatives (`tuple`, `frozenset`, …) instead. The check recurses into generic parameters and union syntax, so `Optional[list[str]]` and `str \| list[int]` are both caught. `ClassVar` annotations are exempt. |
+| **PDT003** | Fields in non-frozen `BaseModel` subclasses (`frozen=False`) must each declare their own `Field(frozen=True)` or `Field(frozen=False)`. This forces a deliberate per-field immutability decision rather than silently inheriting the model-wide mutable default. The `Field(frozen=...)` may appear as the default value or inside an `Annotated` annotation. `ClassVar` fields and `model_config` are exempt. |
 
 ### Structure
 
@@ -73,6 +74,8 @@ The four rules together enforce a consistent import style: every name you use is
 | **STR002** | Control-flow blocks nested deeper than 4 levels are flagged. Counted constructs: `if`/`elif`/`else`, `for`, `while`, `with`, `try`, `match`. `elif` branches count at the same depth as their leading `if`. Function, class, and lambda definitions reset the counter, so nested functions are judged independently. |
 | **STR003** | `try` bodies containing more than 4 statements are flagged. Statements are counted recursively (an `if` with branches contributes 1 plus all contained statements). Only the `try:` body is counted — `except` and `finally` blocks are not subject to this rule. Nested functions and classes reset the count. |
 | **STR004** | List and set literals inside functions that are never mutated and are not part of the function output (`return`/`yield`) should use immutable alternatives: `tuple` instead of `[]` and `frozenset` instead of `{}`. Only plain literals are checked; constructor calls and comprehensions are not covered. |
+| **STR005** | Module-level constants (SCREAMING_SNAKE_CASE names) must carry a `Final` annotation (`name: Final = ...`) so static type checkers can enforce that they are never reassigned. Plain assignments and non-`Final` annotations are flagged. Dunder names (`__all__`, `__version__`, etc.) are exempt. Only direct `module.body` assignments are checked; constants inside functions, classes, or nested blocks are not. |
+| **STR006** | Module-level constants (SCREAMING_SNAKE_CASE names) must not be assigned mutable `list` or `set` literals. `Final` prevents rebinding but not in-place mutation, so use `tuple` instead of `[...]` and `frozenset` instead of `{...}` to enforce immutability at the value level. Only plain literals at module scope are checked; dict literals, constructor calls, and comprehensions are not covered. |
 
 ## Suppression
 
@@ -109,5 +112,6 @@ uv run sergey check .      # run sergey on itself
 1. Create or extend a module in `sergey/rules/` with a class that subclasses `base.Rule` and implements `check(tree, source) -> list[Diagnostic]`.
 2. Register the rule in `sergey/rules/__init__.py` by adding an instance to `ALL_RULES`.
 3. Add tests in `tests/rules/`.
+4. Update the `Rules` section in this README to document the new rule.
 
 Rule IDs follow the pattern `CAT###` where `CAT` is a short category prefix (`IMP`, `NAM`, `STR`, …) and `###` is a three-digit number.
