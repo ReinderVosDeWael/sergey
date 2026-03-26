@@ -530,6 +530,148 @@ class TestIMP003Fix:
 
 
 # ---------------------------------------------------------------------------
+# IMP002 — auto-fix
+# ---------------------------------------------------------------------------
+
+
+def _fix_imp002(source: str) -> list[base.Fix | None]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.fix for diag in imports.IMP002().check(tree, source)]
+
+
+def _diags_imp002(source: str) -> list[base.Diagnostic]:
+    tree = ast.parse(textwrap.dedent(source))
+    return imports.IMP002().check(tree, source)
+
+
+class TestIMP002Fix:
+    def test_simple_typing_import_fix(self) -> None:
+        source = textwrap.dedent("""\
+            import typing
+            x: typing.Optional[str]
+        """)
+        fixes = _fix_imp002(source)
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from typing import Optional"
+
+    def test_multiple_attrs_sorted(self) -> None:
+        source = textwrap.dedent("""\
+            import typing
+            x: typing.Optional[str]
+            y: typing.Dict[str, int]
+        """)
+        fixes = _fix_imp002(source)
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from typing import Dict, Optional"
+
+    def test_reference_rewrite(self) -> None:
+        source = textwrap.dedent("""\
+            import typing
+            x: typing.Optional[str]
+        """)
+        diags = _diags_imp002(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "Optional"
+        assert edits[0].line == 2
+
+    def test_reference_rewrite_multiple_refs(self) -> None:
+        source = textwrap.dedent("""\
+            import typing
+            x: typing.Optional[str]
+            y: typing.Optional[int]
+        """)
+        diags = _diags_imp002(source)
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 2
+        assert all(e.replacement == "Optional" for e in edits)
+
+    def test_with_alias(self) -> None:
+        source = textwrap.dedent("""\
+            import typing as t
+            x: t.Optional[str]
+        """)
+        fixes = _fix_imp002(source)
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from typing import Optional"
+        edits = fixes[0].additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "Optional"
+
+    def test_typing_extensions(self) -> None:
+        source = textwrap.dedent("""\
+            import typing_extensions
+            x: typing_extensions.Protocol
+        """)
+        fixes = _fix_imp002(source)
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from typing_extensions import Protocol"
+
+    def test_no_fix_when_unsafe_usage(self) -> None:
+        # bare `typing` used as a value — cannot safely fix
+        source = textwrap.dedent("""\
+            import typing
+            x = typing
+        """)
+        fixes = _fix_imp002(source)
+        assert fixes[0] is None
+
+    def test_no_fix_when_no_attr_refs(self) -> None:
+        # typing imported but never accessed as attribute
+        source = "import typing\n"
+        fixes = _fix_imp002(source)
+        assert fixes[0] is None
+
+    def test_no_fix_on_name_conflict(self) -> None:
+        source = textwrap.dedent("""\
+            import typing
+            Optional = str
+            x: typing.Optional[str]
+        """)
+        fixes = _fix_imp002(source)
+        assert fixes[0] is None
+
+    def test_multi_alias_node_fixes_both(self) -> None:
+        # import typing, typing_extensions — fix covers both
+        source = textwrap.dedent("""\
+            import typing, typing_extensions
+            x: typing.Optional[str]
+            y: typing_extensions.Protocol
+        """)
+        diags = _diags_imp002(source)
+        # Two diagnostics (one per alias), both share the same fix
+        assert len(diags) == 2
+        fix = diags[0].fix
+        assert fix is not None
+        assert fix is diags[1].fix
+        assert "from typing import Optional" in fix.replacement
+        assert "from typing_extensions import Protocol" in fix.replacement
+
+    def test_mixed_typing_and_plain_import(self) -> None:
+        source = textwrap.dedent("""\
+            import typing, os
+            x: typing.Optional[str]
+        """)
+        fixes = _fix_imp002(source)
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from typing import Optional\nimport os"
+
+    def test_indented_import_preserves_indent(self) -> None:
+        source = textwrap.dedent("""\
+            def f():
+                import typing
+                x: typing.Optional[str]
+        """)
+        diags = _diags_imp002(source)
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from typing import Optional"
+
+
+# ---------------------------------------------------------------------------
 # IMP004 — collections.abc plain imports
 # ---------------------------------------------------------------------------
 
@@ -570,3 +712,121 @@ class TestIMP004:
         tree = ast.parse(source)
         diags = imports.IMP004().check(tree, source)
         assert diags[0].rule_id == "IMP004"
+
+
+# ---------------------------------------------------------------------------
+# IMP004 — auto-fix
+# ---------------------------------------------------------------------------
+
+
+def _fix_imp004(source: str) -> list[base.Fix | None]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.fix for diag in imports.IMP004().check(tree, source)]
+
+
+def _diags_imp004(source: str) -> list[base.Diagnostic]:
+    tree = ast.parse(textwrap.dedent(source))
+    return imports.IMP004().check(tree, source)
+
+
+class TestIMP004Fix:
+    def test_no_alias_fix(self) -> None:
+        source = textwrap.dedent("""\
+            import collections.abc
+            x: collections.abc.Mapping
+        """)
+        fixes = _fix_imp004(source)
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from collections.abc import Mapping"
+
+    def test_no_alias_reference_rewrite(self) -> None:
+        source = textwrap.dedent("""\
+            import collections.abc
+            x: collections.abc.Mapping
+        """)
+        diags = _diags_imp004(source)
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "Mapping"
+        assert edits[0].line == 2
+
+    def test_no_alias_multiple_names(self) -> None:
+        source = textwrap.dedent("""\
+            import collections.abc
+            x: collections.abc.Mapping
+            y: collections.abc.Callable
+        """)
+        fixes = _fix_imp004(source)
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from collections.abc import Callable, Mapping"
+
+    def test_with_alias_fix(self) -> None:
+        source = textwrap.dedent("""\
+            import collections.abc as abc
+            x: abc.Mapping
+        """)
+        fixes = _fix_imp004(source)
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from collections.abc import Mapping"
+
+    def test_with_alias_reference_rewrite(self) -> None:
+        source = textwrap.dedent("""\
+            import collections.abc as abc
+            x: abc.Mapping
+        """)
+        diags = _diags_imp004(source)
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "Mapping"
+
+    def test_no_fix_when_unsafe_usage_no_alias(self) -> None:
+        # bare collections used as a value
+        source = textwrap.dedent("""\
+            import collections.abc
+            x = collections
+        """)
+        fixes = _fix_imp004(source)
+        assert fixes[0] is None
+
+    def test_no_fix_when_intermediate_unsafe_no_alias(self) -> None:
+        # collections.abc used without further attribute access
+        source = textwrap.dedent("""\
+            import collections.abc
+            x = collections.abc
+        """)
+        fixes = _fix_imp004(source)
+        assert fixes[0] is None
+
+    def test_no_fix_when_unsafe_usage_with_alias(self) -> None:
+        source = textwrap.dedent("""\
+            import collections.abc as abc
+            x = abc
+        """)
+        fixes = _fix_imp004(source)
+        assert fixes[0] is None
+
+    def test_no_fix_when_no_attr_refs(self) -> None:
+        source = "import collections.abc\n"
+        fixes = _fix_imp004(source)
+        assert fixes[0] is None
+
+    def test_no_fix_on_name_conflict(self) -> None:
+        source = textwrap.dedent("""\
+            import collections.abc
+            Mapping = dict
+            x: collections.abc.Mapping
+        """)
+        fixes = _fix_imp004(source)
+        assert fixes[0] is None
+
+    def test_indented_import_preserves_indent(self) -> None:
+        source = textwrap.dedent("""\
+            def f():
+                import collections.abc
+                x: collections.abc.Mapping
+        """)
+        diags = _diags_imp004(source)
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from collections.abc import Mapping"
