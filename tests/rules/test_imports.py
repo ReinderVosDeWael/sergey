@@ -94,6 +94,19 @@ class TestIMP001:
     def test_relative_import_with_module_flagged(self) -> None:
         assert _check_imp001("from .utils import Helper") == ["IMP001"]
 
+    def test_bare_relative_import_ok(self) -> None:
+        # from . import X is a bare relative import — commonly used to import
+        # sibling submodules; should NOT be flagged as IMP001.
+        assert _check_imp001("from . import rules") == []
+
+    def test_bare_relative_import_multiple_names_ok(self) -> None:
+        # Multiple names in a bare relative import should all be allowed.
+        assert _check_imp001("from . import rules, base, utils") == []
+
+    def test_bare_relative_import_two_levels_ok(self) -> None:
+        # Same exemption applies regardless of how many dots.
+        assert _check_imp001("from .. import helpers") == []
+
     def test_aliased_from_import_flagged(self) -> None:
         assert _check_imp001("from os.path import join as path_join") == ["IMP001"]
 

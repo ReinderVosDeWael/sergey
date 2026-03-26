@@ -86,6 +86,12 @@ class IMP001(base.Rule):
                     for alias in node.names
                     if not _is_submodule(module, alias.name)
                 ]
+            elif node.level > 0 and not module:
+                # Bare relative imports (e.g. `from . import rules`) are used to
+                # import sibling submodules.  We cannot verify submodule status
+                # without knowing the package root, so we skip them entirely to
+                # avoid false positives.
+                continue
             else:
                 bad_aliases = list(node.names)
 
