@@ -45,6 +45,31 @@ def _imp003_fix(node: ast.Import) -> base.Fix:
     return base.Fix(replacement=f"\n{indent}".join(parts))
 
 
+def _has_name_conflict(
+    name: str,
+    exclude_names: set[str],
+    tree: ast.Module,
+) -> bool:
+    """Return True if *name* is already used in *tree* outside *exclude_names*."""
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Name) and n.id == name and n.id not in exclude_names:
+            return True
+        if isinstance(n, ast.Import):
+            for alias in n.names:
+                local = alias.asname or (
+                    alias.name if "." not in alias.name else None
+                )
+                if local == name and local not in exclude_names:
+                    return True
+        if isinstance(n, ast.ImportFrom):
+            for alias in n.names:
+                if alias.name != "*":
+                    local = alias.asname or alias.name
+                    if local == name and local not in exclude_names:
+                        return True
+    return False
+
+
 def _imp001_fix(
     node: ast.ImportFrom,
     bad_aliases: list[ast.alias],
@@ -53,7 +78,13 @@ def _imp001_fix(
     """Build a fix for an IMP001 violation on *node*.
 
     Rewrites the import statement and all call-site references so that the
-    module is imported directly and names are accessed as attributes.
+    module is imported directly and names are accessed as attributes.  The
+    replacement import is always IMP003-compliant: dotted absolute modules use
+    ``from parent import leaf`` syntax rather than ``import parent.leaf``.
+
+    When the leaf name would conflict with an existing binding, an ``as``
+    alias is added using the full module path with dots replaced by
+    underscores (e.g. ``from os import path as os_path``).
 
     Returns ``None`` when a star import is involved (cannot be fixed
     automatically).
@@ -78,16 +109,31 @@ def _imp001_fix(
         )
         parts.append(f"from {dots}{module} import {good_names}")
 
-    if level == 0:
-        # Absolute: ``import <module>``
+    # Determine the IMP003-compliant import and the local name used for rewrites.
+    bad_local_names = {alias.asname or alias.name for alias in bad_aliases}
+    if level == 0 and "." in module:
+        # Absolute dotted: use ``from parent import leaf`` (IMP003-compliant).
+        parent, _, leaf = module.rpartition(".")
+        if _has_name_conflict(leaf, bad_local_names, tree):
+            module_local = module.replace(".", "_")
+            parts.append(f"from {parent} import {leaf} as {module_local}")
+        else:
+            module_local = leaf
+            parts.append(f"from {parent} import {leaf}")
+        ref_prefix = module_local
+    elif level == 0:
+        # Absolute non-dotted: ``import <module>``
         parts.append(f"import {module}")
+        ref_prefix = module
     elif "." in module:
         # Relative with dotted module: ``from .<parent> import <leaf>``
         parent, _, leaf = module.rpartition(".")
         parts.append(f"from {dots}{parent} import {leaf}")
+        ref_prefix = leaf
     else:
         # Simple relative: ``from <dots> import <module>``
         parts.append(f"from {dots} import {module}")
+        ref_prefix = module
 
     replacement = f"\n{indent}".join(parts)
 
@@ -95,12 +141,6 @@ def _imp001_fix(
     name_map: dict[str, str] = {}
     for alias in bad_aliases:
         local_name = alias.asname or alias.name
-        if level == 0:
-            ref_prefix = module
-        elif "." in module:
-            _, _, ref_prefix = module.rpartition(".")
-        else:
-            ref_prefix = module
         name_map[local_name] = f"{ref_prefix}.{alias.name}"
 
     # --- Collect reference edits ---

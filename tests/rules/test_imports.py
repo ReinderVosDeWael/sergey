@@ -148,7 +148,7 @@ class TestIMP001Fix:
         fixes = _fix_imp001("from os.path import join")
         assert len(fixes) == 1
         assert fixes[0] is not None
-        assert fixes[0].replacement == "import os.path"
+        assert fixes[0].replacement == "from os import path"
 
     def test_from_import_class_fix(self) -> None:
         fixes = _fix_imp001("from collections import OrderedDict")
@@ -160,13 +160,13 @@ class TestIMP001Fix:
         fixes = _fix_imp001("from os.path import join as j")
         assert len(fixes) == 1
         assert fixes[0] is not None
-        assert fixes[0].replacement == "import os.path"
+        assert fixes[0].replacement == "from os import path"
 
     def test_multiple_bad_names_fix(self) -> None:
         fixes = _fix_imp001("from os.path import join, exists, dirname")
         assert len(fixes) == 1
         assert fixes[0] is not None
-        assert fixes[0].replacement == "import os.path"
+        assert fixes[0].replacement == "from os import path"
 
     def test_mixed_good_and_bad_fix(self) -> None:
         # path is a submodule (kept), getcwd is a function (moved)
@@ -185,7 +185,7 @@ class TestIMP001Fix:
         assert diags[0].fix is not None
         edits = diags[0].fix.additional_edits
         assert len(edits) == 1
-        assert edits[0].replacement == "os.path.join"
+        assert edits[0].replacement == "path.join"
         assert edits[0].line == 2
 
     def test_reference_rewrite_multiple_refs(self) -> None:
@@ -211,7 +211,7 @@ class TestIMP001Fix:
         assert diags[0].fix is not None
         edits = diags[0].fix.additional_edits
         assert len(edits) == 1
-        assert edits[0].replacement == "os.path.join"
+        assert edits[0].replacement == "path.join"
 
     def test_no_reference_rewrite_for_store(self) -> None:
         source = textwrap.dedent("""\
@@ -278,7 +278,7 @@ class TestIMP001Fix:
         diags = imports.IMP001().check(tree, source)
         assert len(diags) == 1
         assert diags[0].fix is not None
-        assert diags[0].fix.replacement == "import os.path"
+        assert diags[0].fix.replacement == "from os import path"
 
     def test_mixed_good_bad_preserves_indent(self) -> None:
         source = textwrap.dedent("""\
@@ -290,6 +290,63 @@ class TestIMP001Fix:
         assert len(diags) == 1
         assert diags[0].fix is not None
         assert diags[0].fix.replacement == "from os import path\n    import os"
+
+    def test_imp003_compliant_fix_for_dotted_module(self) -> None:
+        # Fix for a dotted absolute module must use `from X import Y`, not `import X.Y`.
+        fixes = _fix_imp001("from importlib.util import find_spec")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from importlib import util"
+
+    def test_imp003_compliant_reference_rewrite(self) -> None:
+        source = textwrap.dedent("""\
+            from importlib.util import find_spec
+            spec = find_spec("os")
+        """)
+        diags = _diags_imp001(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from importlib import util"
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "util.find_spec"
+
+    def test_naming_conflict_uses_alias(self) -> None:
+        # When the leaf name (`path`) already exists in the tree, use an `as` alias.
+        source = textwrap.dedent("""\
+            path = "/tmp"
+            from os.path import join
+        """)
+        diags = _diags_imp001(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from os import path as os_path"
+
+    def test_naming_conflict_reference_rewrite_uses_alias(self) -> None:
+        source = textwrap.dedent("""\
+            path = "/tmp"
+            from os.path import join
+            x = join("a", "b")
+        """)
+        diags = _diags_imp001(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from os import path as os_path"
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "os_path.join"
+
+    def test_naming_conflict_deep_dotted_module(self) -> None:
+        # If `util` already exists, alias becomes `importlib_util`.
+        source = textwrap.dedent("""\
+            util = "something"
+            from importlib.util import find_spec
+        """)
+        diags = _diags_imp001(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        expected = "from importlib import util as importlib_util"
+        assert diags[0].fix.replacement == expected
 
 
 # ---------------------------------------------------------------------------
