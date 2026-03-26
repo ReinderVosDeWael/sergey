@@ -29,15 +29,29 @@ def _apply_fixes(source: str, diagnostics: list[rules_base.Diagnostic]) -> str:
             seen_ranges.add(key)
             unique.append(diag)
 
-    # Apply bottom→top to keep earlier positions stable.
-    for diag in reversed(unique):
+    # Gather all edits (primary range + any additional edits) into one list.
+    all_edits: list[rules_base.TextEdit] = []
+    for diag in unique:
+        assert diag.fix is not None  # noqa: S101
+        all_edits.append(
+            rules_base.TextEdit(
+                line=diag.line,
+                col=diag.col,
+                end_line=diag.end_line,
+                end_col=diag.end_col,
+                replacement=diag.fix.replacement,
+            )
+        )
+        all_edits.extend(diag.fix.additional_edits)
+
+    # Apply bottom→top, right→left to keep earlier positions stable.
+    all_edits.sort(key=lambda e: (e.line, e.col), reverse=True)
+
+    for edit in all_edits:
         lines = source.splitlines(keepends=True)
-        # Build character offsets for start and end of the diagnostic range.
-        start = sum(len(lines[idx]) for idx in range(diag.line - 1)) + diag.col
-        end = sum(len(lines[idx]) for idx in range(diag.end_line - 1)) + diag.end_col
-        if diag.fix is None:  # pragma: no cover
-            continue
-        source = source[:start] + diag.fix.replacement + source[end:]
+        start = sum(len(lines[idx]) for idx in range(edit.line - 1)) + edit.col
+        end = sum(len(lines[idx]) for idx in range(edit.end_line - 1)) + edit.end_col
+        source = source[:start] + edit.replacement + source[end:]
     return source
 
 
