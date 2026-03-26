@@ -35,3 +35,7 @@ Ruff is configured with `select = ["ALL"]` — all rules enabled. Docstrings fol
 ## Python Version
 
 Python 3.14 (see `.python-version`).
+
+## Adding a Rule
+
+When adding or modifying a rule, always update the `Rules` section in `README.md` to reflect the change. Keep rule descriptions in the README accurate and in sync with the implementation.
