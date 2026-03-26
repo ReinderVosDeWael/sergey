@@ -21,28 +21,219 @@ _IMP003_EXCLUDED: Final[frozenset[str]] = frozenset({"collections.abc"})
 _COLLECTIONS_MODULES: Final[frozenset[str]] = frozenset({"collections.abc"})
 
 
-def _imp003_fix(node: ast.Import) -> base.Fix:
+# ---------------------------------------------------------------------------
+# Shared helpers for fix functions
+# ---------------------------------------------------------------------------
+
+
+def _is_attr_chain(node: ast.AST, parts: list[str]) -> bool:
+    """Return True when *node* is an attribute chain ``parts[0].parts[1]...``."""
+    for part in reversed(parts[1:]):
+        if not (isinstance(node, ast.Attribute) and node.attr == part):
+            return False
+        node = node.value
+    return isinstance(node, ast.Name) and node.id == parts[0]
+
+
+def _chain_root(node: ast.AST) -> ast.Name | None:
+    """Walk down ``.value`` links and return the innermost ``ast.Name``."""
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return node if isinstance(node, ast.Name) else None
+
+
+def _has_name_conflict(
+    tree: ast.Module,
+    name: str,
+    exclude_node: ast.AST,
+) -> bool:
+    """Return True when *name* is already bound at module level."""
+    return any(
+        _did_stmt_bind_name(stmt, name)
+        for stmt in tree.body
+        if stmt is not exclude_node
+    )
+
+
+def _did_stmt_bind_name(stmt: ast.stmt, name: str) -> bool:
+    """Return True when a single statement binds *name*."""
+    if isinstance(stmt, ast.Import):
+        return any(
+            (alias.asname or alias.name.split(".")[0]) == name for alias in stmt.names
+        )
+    if isinstance(stmt, ast.ImportFrom):
+        return any(
+            alias.name != "*" and (alias.asname or alias.name) == name
+            for alias in stmt.names
+        )
+    if isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+        return stmt.name == name
+    if isinstance(stmt, ast.Assign):
+        return any(
+            isinstance(target, ast.Name) and target.id == name
+            for target in stmt.targets
+        )
+    if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+        return stmt.target.id == name
+    return False
+
+
+def _conflict_alias(parent: str, leaf: str) -> str:
+    """Build a collision-safe alias: ``immediateParent_leaf``."""
+    immediate = parent.rpartition(".")[2] or parent
+    return f"{immediate}_{leaf}"
+
+
+def _is_root_imported(
+    tree: ast.Module,
+    root: str,
+    exclude_node: ast.AST,
+) -> bool:
+    """Return True when *root* is already bound by another ``import`` statement."""
+    for stmt in tree.body:
+        if stmt is exclude_node:
+            continue
+        if isinstance(stmt, ast.Import) and any(
+            (alias.asname or alias.name.split(".")[0]) == root for alias in stmt.names
+        ):
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# IMP003 fix
+# ---------------------------------------------------------------------------
+
+
+def _imp003_rewrite_alias(
+    alias: ast.alias,
+    tree: ast.Module,
+    node: ast.Import,
+) -> tuple[str, list[base.TextEdit], str | None]:
+    """Process a single dotted alias for IMP003.
+
+    Returns:
+        A tuple of (import_statement, additional_edits, root_needing_import).
+    """
+    parent, _, leaf = alias.name.rpartition(".")
+
+    if alias.asname:
+        return f"from {parent} import {leaf} as {alias.asname}", [], None
+
+    # Determine the reference name (with conflict resolution).
+    if _has_name_conflict(tree, leaf, node):
+        ref_name = _conflict_alias(parent, leaf)
+        stmt = f"from {parent} import {leaf} as {ref_name}"
+    else:
+        ref_name = leaf
+        stmt = f"from {parent} import {leaf}"
+
+    # Rewrite attribute-chain references (e.g. os.path.join → path.join).
+    dotted_parts = alias.name.split(".")
+    root = dotted_parts[0]
+    matched_root_ids: set[int] = set()
+    edits: list[base.TextEdit] = []
+
+    for ref in ast.walk(tree):
+        if not isinstance(ref, ast.Attribute):
+            continue
+        if not _is_attr_chain(ref, dotted_parts):
+            continue
+        edits.append(
+            base.TextEdit(
+                line=ref.lineno,
+                col=ref.col_offset,
+                end_line=ref.end_lineno or ref.lineno,
+                end_col=ref.end_col_offset or (ref.col_offset + len(alias.name)),
+                replacement=ref_name,
+            )
+        )
+        root_node = _chain_root(ref)
+        if root_node is not None:
+            matched_root_ids.add(id(root_node))
+
+    # Check for standalone root usage.
+    extra_root: str | None = None
+    if not _is_root_imported(tree, root, node) and any(
+        isinstance(ref, ast.Name)
+        and ref.id == root
+        and isinstance(ref.ctx, ast.Load)
+        and id(ref) not in matched_root_ids
+        for ref in ast.walk(tree)
+    ):
+        extra_root = root
+
+    return stmt, edits, extra_root
+
+
+def _imp003_fix(node: ast.Import, tree: ast.Module) -> base.Fix:
     """Build the replacement text for an IMP003 violation on *node*.
 
     Each dotted alias is rewritten as ``from parent import name``; non-dotted
-    aliases are kept as plain ``import`` statements.  When the node contains
-    multiple aliases the replacements are joined with newlines, preserving the
-    original indentation for every subsequent line.
+    aliases are kept as plain ``import`` statements.  Call-site references are
+    rewritten to use the leaf name.  When the leaf name conflicts with an
+    existing binding, an ``as parent_leaf`` alias is generated.
     """
     indent = " " * node.col_offset
     parts: list[str] = []
+    additional_edits: list[base.TextEdit] = []
+    extra_root_imports: set[str] = set()
+
     for alias in node.names:
-        if "." in alias.name and alias.name not in _IMP003_EXCLUDED:
-            parent, _, name = alias.name.rpartition(".")
-            stmt = f"from {parent} import {name}"
-            if alias.asname:
-                stmt += f" as {alias.asname}"
-        else:
+        if "." not in alias.name or alias.name in _IMP003_EXCLUDED:
             stmt = f"import {alias.name}"
             if alias.asname:
                 stmt += f" as {alias.asname}"
+            parts.append(stmt)
+            continue
+
+        stmt, edits, extra_root = _imp003_rewrite_alias(alias, tree, node)
         parts.append(stmt)
-    return base.Fix(replacement=f"\n{indent}".join(parts))
+        additional_edits.extend(edits)
+        if extra_root is not None:
+            extra_root_imports.add(extra_root)
+
+    parts.extend(f"import {root}" for root in sorted(extra_root_imports))
+
+    return base.Fix(
+        replacement=f"\n{indent}".join(parts),
+        additional_edits=additional_edits,
+    )
+
+
+# ---------------------------------------------------------------------------
+# IMP001 fix
+# ---------------------------------------------------------------------------
+
+
+def _resolve_module_import(
+    module: str,
+    level: int,
+    tree: ast.Module,
+    node: ast.ImportFrom,
+) -> tuple[str, str]:
+    """Determine the import statement and reference prefix for IMP001.
+
+    Returns:
+        A tuple of (import_statement, ref_prefix).
+    """
+    dots = "." * level
+
+    if level == 0 and "." not in module:
+        return f"import {module}", module
+
+    # Dotted module (absolute or relative) — split into parent/leaf.
+    if "." in module:
+        parent, _, leaf = module.rpartition(".")
+        prefix = f"{dots}{parent}" if level else parent
+    else:
+        # Simple relative: ``from <dots> import <module>``
+        parent, leaf, prefix = "", module, dots
+
+    if _has_name_conflict(tree, leaf, node):
+        safe = _conflict_alias(parent, leaf) if parent else f"{'_' * level}{leaf}"
+        return f"from {prefix} import {leaf} as {safe}", safe
+    return f"from {prefix} import {leaf}", leaf
 
 
 def _imp001_fix(
@@ -54,6 +245,11 @@ def _imp001_fix(
 
     Rewrites the import statement and all call-site references so that the
     module is imported directly and names are accessed as attributes.
+
+    The generated import is IMP003-compliant: for dotted modules
+    (e.g. ``os.path``) the fix emits ``from os import path`` rather than
+    ``import os.path``.  When the leaf name conflicts with an existing
+    binding, an ``as parent_leaf`` alias is used.
 
     Returns ``None`` when a star import is involved (cannot be fixed
     automatically).
@@ -78,16 +274,8 @@ def _imp001_fix(
         )
         parts.append(f"from {dots}{module} import {good_names}")
 
-    if level == 0:
-        # Absolute: ``import <module>``
-        parts.append(f"import {module}")
-    elif "." in module:
-        # Relative with dotted module: ``from .<parent> import <leaf>``
-        parent, _, leaf = module.rpartition(".")
-        parts.append(f"from {dots}{parent} import {leaf}")
-    else:
-        # Simple relative: ``from <dots> import <module>``
-        parts.append(f"from {dots} import {module}")
+    mod_stmt, ref_prefix = _resolve_module_import(module, level, tree, node)
+    parts.append(mod_stmt)
 
     replacement = f"\n{indent}".join(parts)
 
@@ -95,12 +283,6 @@ def _imp001_fix(
     name_map: dict[str, str] = {}
     for alias in bad_aliases:
         local_name = alias.asname or alias.name
-        if level == 0:
-            ref_prefix = module
-        elif "." in module:
-            _, _, ref_prefix = module.rpartition(".")
-        else:
-            ref_prefix = module
         name_map[local_name] = f"{ref_prefix}.{alias.name}"
 
     # --- Collect reference edits ---
@@ -270,7 +452,7 @@ class IMP003(base.Rule):
                         end_line=node.end_lineno or node.lineno,
                         end_col=node.end_col_offset or node.col_offset,
                         severity=base.Severity.WARNING,
-                        fix=_imp003_fix(node),
+                        fix=_imp003_fix(node, tree),
                     )
                 )
         return diagnostics

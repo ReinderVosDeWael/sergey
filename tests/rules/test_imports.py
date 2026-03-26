@@ -144,29 +144,31 @@ def _diags_imp001(source: str) -> list[base.Diagnostic]:
 
 
 class TestIMP001Fix:
-    def test_simple_from_import_fix(self) -> None:
+    def test_dotted_module_fix_is_imp003_compliant(self) -> None:
+        # from os.path import join → from os import path (not import os.path)
         fixes = _fix_imp001("from os.path import join")
         assert len(fixes) == 1
         assert fixes[0] is not None
-        assert fixes[0].replacement == "import os.path"
+        assert fixes[0].replacement == "from os import path"
 
-    def test_from_import_class_fix(self) -> None:
+    def test_non_dotted_module_fix(self) -> None:
         fixes = _fix_imp001("from collections import OrderedDict")
         assert len(fixes) == 1
         assert fixes[0] is not None
         assert fixes[0].replacement == "import collections"
 
     def test_aliased_from_import_fix(self) -> None:
+        # from os.path import join as j → from os import path
         fixes = _fix_imp001("from os.path import join as j")
         assert len(fixes) == 1
         assert fixes[0] is not None
-        assert fixes[0].replacement == "import os.path"
+        assert fixes[0].replacement == "from os import path"
 
     def test_multiple_bad_names_fix(self) -> None:
         fixes = _fix_imp001("from os.path import join, exists, dirname")
         assert len(fixes) == 1
         assert fixes[0] is not None
-        assert fixes[0].replacement == "import os.path"
+        assert fixes[0].replacement == "from os import path"
 
     def test_mixed_good_and_bad_fix(self) -> None:
         # path is a submodule (kept), getcwd is a function (moved)
@@ -175,7 +177,8 @@ class TestIMP001Fix:
         assert fixes[0] is not None
         assert fixes[0].replacement == "from os import path\nimport os"
 
-    def test_reference_rewrite_simple(self) -> None:
+    def test_reference_rewrite_dotted_module(self) -> None:
+        # References should use the leaf module name, not the full dotted path.
         source = textwrap.dedent("""\
             from os.path import join
             x = join("a", "b")
@@ -185,10 +188,10 @@ class TestIMP001Fix:
         assert diags[0].fix is not None
         edits = diags[0].fix.additional_edits
         assert len(edits) == 1
-        assert edits[0].replacement == "os.path.join"
+        assert edits[0].replacement == "path.join"
         assert edits[0].line == 2
 
-    def test_reference_rewrite_multiple_refs(self) -> None:
+    def test_reference_rewrite_non_dotted_module(self) -> None:
         source = textwrap.dedent("""\
             from collections import OrderedDict
             x = OrderedDict()
@@ -211,7 +214,8 @@ class TestIMP001Fix:
         assert diags[0].fix is not None
         edits = diags[0].fix.additional_edits
         assert len(edits) == 1
-        assert edits[0].replacement == "os.path.join"
+        # Alias j is rewritten to the leaf-qualified name.
+        assert edits[0].replacement == "path.join"
 
     def test_no_reference_rewrite_for_store(self) -> None:
         source = textwrap.dedent("""\
@@ -278,7 +282,7 @@ class TestIMP001Fix:
         diags = imports.IMP001().check(tree, source)
         assert len(diags) == 1
         assert diags[0].fix is not None
-        assert diags[0].fix.replacement == "import os.path"
+        assert diags[0].fix.replacement == "from os import path"
 
     def test_mixed_good_bad_preserves_indent(self) -> None:
         source = textwrap.dedent("""\
@@ -290,6 +294,57 @@ class TestIMP001Fix:
         assert len(diags) == 1
         assert diags[0].fix is not None
         assert diags[0].fix.replacement == "from os import path\n    import os"
+
+    def test_naming_conflict_uses_alias(self) -> None:
+        # ``path`` is already defined — fix must use ``os_path`` alias.
+        source = textwrap.dedent("""\
+            from os.path import join
+            path = "/tmp"
+            x = join(path, "file")
+        """)
+        diags = _diags_imp001(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from os import path as os_path"
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "os_path.join"
+
+    def test_deep_dotted_module_imp003_compliant(self) -> None:
+        # from xml.etree.ElementTree import parse → from xml.etree import ElementTree
+        source = "from xml.etree.ElementTree import parse"
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from xml.etree import ElementTree"
+
+    def test_deep_dotted_module_reference_uses_leaf(self) -> None:
+        source = textwrap.dedent("""\
+            from xml.etree.ElementTree import parse
+            tree = parse("file.xml")
+        """)
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert any(edit.replacement == "ElementTree.parse" for edit in edits)
+
+    def test_naming_conflict_deep_dotted_module(self) -> None:
+        # ``document`` clashes — use ``docx_document`` alias.
+        source = textwrap.dedent("""\
+            from docx.document import Document
+            document = "report.docx"
+            doc = Document()
+        """)
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from docx import document as docx_document"
+        edits = diags[0].fix.additional_edits
+        assert any(edit.replacement == "docx_document.Document" for edit in edits)
 
 
 # ---------------------------------------------------------------------------
@@ -409,13 +464,18 @@ class TestIMP003:
 
 
 # ---------------------------------------------------------------------------
-# IMP003 — auto-fix
+# IMP003 — auto-fix (import line)
 # ---------------------------------------------------------------------------
 
 
 def _fix_imp003(source: str) -> list[base.Fix | None]:
     tree = ast.parse(textwrap.dedent(source))
     return [diag.fix for diag in imports.IMP003().check(tree, source)]
+
+
+def _diags_imp003(source: str) -> list[base.Diagnostic]:
+    tree = ast.parse(textwrap.dedent(source))
+    return imports.IMP003().check(tree, source)
 
 
 class TestIMP003Fix:
@@ -470,6 +530,139 @@ class TestIMP003Fix:
         # Plain (non-dotted) import produces no IMP003 diagnostics at all.
         fixes = _fix_imp003("import os")
         assert fixes == []
+
+
+# ---------------------------------------------------------------------------
+# IMP003 — auto-fix (reference rewriting)
+# ---------------------------------------------------------------------------
+
+
+class TestIMP003FixRefs:
+    def test_simple_reference_rewrite(self) -> None:
+        source = textwrap.dedent("""\
+            import os.path
+            x = os.path.join("a", "b")
+        """)
+        diags = _diags_imp003(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "path"
+        assert edits[0].line == 2
+
+    def test_multiple_references_rewritten(self) -> None:
+        source = textwrap.dedent("""\
+            import os.path
+            x = os.path.join("a", "b")
+            y = os.path.exists("/tmp")
+        """)
+        diags = _diags_imp003(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 2
+        assert all(edit.replacement == "path" for edit in edits)
+
+    def test_standalone_dotted_ref_rewritten(self) -> None:
+        # os.path used as a standalone value (not an attribute access parent).
+        source = textwrap.dedent("""\
+            import os.path
+            x = os.path
+        """)
+        diags = _diags_imp003(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "path"
+
+    def test_aliased_import_no_ref_rewrite(self) -> None:
+        # Aliased imports don't need reference rewriting.
+        source = textwrap.dedent("""\
+            import os.path as ospath
+            x = ospath.join("a", "b")
+        """)
+        diags = _diags_imp003(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.additional_edits == []
+
+    def test_standalone_root_usage_adds_import(self) -> None:
+        # os.getcwd() uses ``os`` standalone — need ``import os`` too.
+        source = textwrap.dedent("""\
+            import os.path
+            x = os.path.join("a", "b")
+            y = os.getcwd()
+        """)
+        diags = _diags_imp003(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert "import os" in diags[0].fix.replacement
+        assert "from os import path" in diags[0].fix.replacement
+
+    def test_root_already_imported_no_duplicate(self) -> None:
+        # ``import os`` already exists — no duplicate added.
+        source = textwrap.dedent("""\
+            import os
+            import os.path
+            x = os.path.join("a", "b")
+            y = os.getcwd()
+        """)
+        diags = _diags_imp003(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from os import path"
+
+    def test_naming_conflict_uses_alias(self) -> None:
+        # ``path`` is already defined — fix must use ``os_path`` alias.
+        source = textwrap.dedent("""\
+            import os.path
+            path = "/tmp"
+            x = os.path.join("a", "b")
+        """)
+        diags = _diags_imp003(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from os import path as os_path"
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "os_path"
+
+    def test_naming_conflict_with_function(self) -> None:
+        source = textwrap.dedent("""\
+            import os.path
+            def path(): ...
+            x = os.path.join("a", "b")
+        """)
+        diags = _diags_imp003(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert "as os_path" in diags[0].fix.replacement
+
+    def test_naming_conflict_with_import(self) -> None:
+        source = textwrap.dedent("""\
+            from pathlib import Path as path
+            import os.path
+            x = os.path.join("a", "b")
+        """)
+        diags = _diags_imp003(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert "as os_path" in diags[0].fix.replacement
+
+    def test_deep_dotted_reference_rewrite(self) -> None:
+        source = textwrap.dedent("""\
+            import xml.etree.ElementTree
+            tree = xml.etree.ElementTree.parse("file.xml")
+        """)
+        diags = _diags_imp003(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from xml.etree import ElementTree"
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "ElementTree"
 
 
 # ---------------------------------------------------------------------------
