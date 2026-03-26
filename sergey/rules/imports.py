@@ -45,6 +45,82 @@ def _imp003_fix(node: ast.Import) -> base.Fix:
     return base.Fix(replacement=f"\n{indent}".join(parts))
 
 
+def _imp001_fix(
+    node: ast.ImportFrom,
+    bad_aliases: list[ast.alias],
+    tree: ast.Module,
+) -> base.Fix | None:
+    """Build a fix for an IMP001 violation on *node*.
+
+    Rewrites the import statement and all call-site references so that the
+    module is imported directly and names are accessed as attributes.
+
+    Returns ``None`` when a star import is involved (cannot be fixed
+    automatically).
+    """
+    if any(alias.name == "*" for alias in bad_aliases):
+        return None
+
+    module = node.module or ""
+    level = node.level
+    indent = " " * node.col_offset
+    dots = "." * level
+
+    good_aliases = [alias for alias in node.names if alias not in bad_aliases]
+
+    # --- Build the replacement import statement(s) ---
+    parts: list[str] = []
+
+    if good_aliases:
+        good_names = ", ".join(
+            f"{alias.name} as {alias.asname}" if alias.asname else alias.name
+            for alias in good_aliases
+        )
+        parts.append(f"from {dots}{module} import {good_names}")
+
+    if level == 0:
+        # Absolute: ``import <module>``
+        parts.append(f"import {module}")
+    elif "." in module:
+        # Relative with dotted module: ``from .<parent> import <leaf>``
+        parent, _, leaf = module.rpartition(".")
+        parts.append(f"from {dots}{parent} import {leaf}")
+    else:
+        # Simple relative: ``from <dots> import <module>``
+        parts.append(f"from {dots} import {module}")
+
+    replacement = f"\n{indent}".join(parts)
+
+    # --- Map local names to their qualified replacements ---
+    name_map: dict[str, str] = {}
+    for alias in bad_aliases:
+        local_name = alias.asname or alias.name
+        if level == 0:
+            ref_prefix = module
+        elif "." in module:
+            _, _, ref_prefix = module.rpartition(".")
+        else:
+            ref_prefix = module
+        name_map[local_name] = f"{ref_prefix}.{alias.name}"
+
+    # --- Collect reference edits ---
+    additional_edits = [
+        base.TextEdit(
+            line=ref.lineno,
+            col=ref.col_offset,
+            end_line=ref.end_lineno or ref.lineno,
+            end_col=ref.end_col_offset or (ref.col_offset + len(ref.id)),
+            replacement=name_map[ref.id],
+        )
+        for ref in ast.walk(tree)
+        if isinstance(ref, ast.Name)
+        and isinstance(ref.ctx, ast.Load)
+        and ref.id in name_map
+    ]
+
+    return base.Fix(replacement=replacement, additional_edits=additional_edits)
+
+
 def _is_submodule(parent: str, name: str) -> bool:
     """Return True if `parent.name` resolves to an importable module or package."""
     try:
@@ -113,6 +189,7 @@ class IMP001(base.Rule):
                     end_line=node.end_lineno or node.lineno,
                     end_col=node.end_col_offset or node.col_offset,
                     severity=base.Severity.WARNING,
+                    fix=_imp001_fix(node, bad_aliases, tree),
                 )
             )
         return diagnostics

@@ -129,6 +129,170 @@ class TestIMP001:
 
 
 # ---------------------------------------------------------------------------
+# IMP001 — auto-fix
+# ---------------------------------------------------------------------------
+
+
+def _fix_imp001(source: str) -> list[base.Fix | None]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.fix for diag in imports.IMP001().check(tree, source)]
+
+
+def _diags_imp001(source: str) -> list[base.Diagnostic]:
+    tree = ast.parse(textwrap.dedent(source))
+    return imports.IMP001().check(tree, source)
+
+
+class TestIMP001Fix:
+    def test_simple_from_import_fix(self) -> None:
+        fixes = _fix_imp001("from os.path import join")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "import os.path"
+
+    def test_from_import_class_fix(self) -> None:
+        fixes = _fix_imp001("from collections import OrderedDict")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "import collections"
+
+    def test_aliased_from_import_fix(self) -> None:
+        fixes = _fix_imp001("from os.path import join as j")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "import os.path"
+
+    def test_multiple_bad_names_fix(self) -> None:
+        fixes = _fix_imp001("from os.path import join, exists, dirname")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "import os.path"
+
+    def test_mixed_good_and_bad_fix(self) -> None:
+        # path is a submodule (kept), getcwd is a function (moved)
+        fixes = _fix_imp001("from os import path, getcwd")
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from os import path\nimport os"
+
+    def test_reference_rewrite_simple(self) -> None:
+        source = textwrap.dedent("""\
+            from os.path import join
+            x = join("a", "b")
+        """)
+        diags = _diags_imp001(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "os.path.join"
+        assert edits[0].line == 2
+
+    def test_reference_rewrite_multiple_refs(self) -> None:
+        source = textwrap.dedent("""\
+            from collections import OrderedDict
+            x = OrderedDict()
+            y = OrderedDict(a=1)
+        """)
+        diags = _diags_imp001(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 2
+        assert all(edit.replacement == "collections.OrderedDict" for edit in edits)
+
+    def test_reference_rewrite_with_alias(self) -> None:
+        source = textwrap.dedent("""\
+            from os.path import join as j
+            x = j("a", "b")
+        """)
+        diags = _diags_imp001(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "os.path.join"
+
+    def test_no_reference_rewrite_for_store(self) -> None:
+        source = textwrap.dedent("""\
+            from os.path import join
+            join = "overwritten"
+        """)
+        diags = _diags_imp001(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        # Store context — should not be rewritten
+        assert diags[0].fix.additional_edits == []
+
+    def test_relative_import_fix(self) -> None:
+        source = "from .utils import Helper"
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from . import utils"
+
+    def test_relative_dotted_module_fix(self) -> None:
+        source = "from .sub.mod import Helper"
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from .sub import mod"
+
+    def test_relative_double_dot_fix(self) -> None:
+        source = "from ..utils import Helper"
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from .. import utils"
+
+    def test_relative_import_reference_rewrite(self) -> None:
+        source = textwrap.dedent("""\
+            from .utils import Helper
+            x = Helper()
+        """)
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "utils.Helper"
+
+    def test_star_import_no_fix(self) -> None:
+        source = "from os.path import *"
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].fix is None
+
+    def test_indented_fix_preserves_indent(self) -> None:
+        source = textwrap.dedent("""\
+            def f():
+                from os.path import join
+                join("a", "b")
+        """)
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "import os.path"
+
+    def test_mixed_good_bad_preserves_indent(self) -> None:
+        source = textwrap.dedent("""\
+            def f():
+                from os import path, getcwd
+        """)
+        tree = ast.parse(source)
+        diags = imports.IMP001().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from os import path\n    import os"
+
+
+# ---------------------------------------------------------------------------
 # IMP002 — typing from-imports
 # ---------------------------------------------------------------------------
 

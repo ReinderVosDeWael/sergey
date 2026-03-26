@@ -21,15 +21,34 @@ class Severity(enum.Enum):
 
 
 @dataclasses.dataclass
+class TextEdit:
+    """A single text replacement at an explicit source location.
+
+    Uses 1-indexed lines and 0-indexed columns, matching Diagnostic.
+    """
+
+    line: int
+    col: int
+    end_line: int
+    end_col: int
+    replacement: str
+
+
+@dataclasses.dataclass
 class Fix:
     """A text replacement that resolves a diagnostic.
 
     The replacement covers the range of the parent Diagnostic
     (line, col) → (end_line, end_col), using 1-indexed lines and
     0-indexed columns.
+
+    ``additional_edits`` lists extra replacements elsewhere in the file
+    that are part of the same logical fix (e.g. rewriting call-site
+    references after changing an import).
     """
 
     replacement: str
+    additional_edits: list[TextEdit] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
