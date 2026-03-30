@@ -1,4 +1,4 @@
-"""Import-style rules: IMP001, IMP002, IMP003, and IMP004."""
+"""Import-style rules: IMP001, IMP002, IMP003, IMP004, and IMP005."""
 
 import ast
 from importlib import util as importlib_util
@@ -543,4 +543,150 @@ class IMP004(base.Rule):
                         fix=fix,
                     )
                 )
+        return diagnostics
+
+
+def _imp005_submodule_attrs(
+    local_name: str,
+    module_name: str,
+    tree: ast.Module,
+) -> frozenset[str]:
+    """Return attribute names on *local_name* that are submodules of *module_name*."""
+    submodules: set[str] = set()
+    for n in ast.walk(tree):
+        if (
+            isinstance(n, ast.Attribute)
+            and isinstance(n.value, ast.Name)
+            and n.value.id == local_name
+            and isinstance(n.ctx, ast.Load)
+            and _is_submodule(module_name, n.attr)
+        ):
+            submodules.add(n.attr)
+    return frozenset(submodules)
+
+
+def _imp005_fix(
+    node: ast.Import,
+    violating: dict[ast.alias, frozenset[str]],
+    tree: ast.Module,
+) -> base.Fix | None:
+    """Build a fix for IMP005 violations in *node*.
+
+    For each violating alias, emits a ``from module import sub1, sub2`` line and
+    rewrites ``local.sub`` attribute references to bare ``sub``.  If the module
+    is also used for non-submodule attribute access, the original ``import X``
+    line is kept alongside the new from-import.  Returns ``None`` when a
+    submodule name would conflict with an existing binding in scope.
+    """
+    indent = " " * node.col_offset
+    parts: list[str] = []
+    additional_edits: list[base.TextEdit] = []
+
+    for alias in node.names:
+        if alias not in violating:
+            stmt = f"import {alias.name}"
+            if alias.asname:
+                stmt += f" as {alias.asname}"
+            parts.append(stmt)
+            continue
+
+        submodule_names = violating[alias]
+        local_name = alias.asname or alias.name
+        module_name = alias.name
+
+        # Check for name conflicts with the submodule names we plan to introduce.
+        for sub in sorted(submodule_names):
+            if _has_name_conflict(sub, {local_name}, tree):
+                return None
+
+        # Collect all local_name.attr refs and determine whether the original
+        # import must be kept (non-submodule attribute access or bare name usage).
+        all_attr_refs, has_unsafe = _collect_simple_attr_refs(local_name, tree)
+        non_sub_refs = [ref for ref in all_attr_refs if ref.attr not in submodule_names]
+        needs_original = has_unsafe or bool(non_sub_refs)
+
+        if needs_original:
+            stmt = f"import {module_name}"
+            if alias.asname:
+                stmt += f" as {alias.asname}"
+            parts.append(stmt)
+
+        parts.append(f"from {module_name} import {', '.join(sorted(submodule_names))}")
+
+        # Rewrite local_name.sub → sub at every reference site.
+        sub_refs = [ref for ref in all_attr_refs if ref.attr in submodule_names]
+        additional_edits.extend(
+            base.TextEdit(
+                line=ref.lineno,
+                col=ref.col_offset,
+                end_line=ref.end_lineno or ref.lineno,
+                end_col=ref.end_col_offset or ref.col_offset,
+                replacement=ref.attr,
+            )
+            for ref in sub_refs
+        )
+
+    return base.Fix(
+        replacement=f"\n{indent}".join(parts),
+        additional_edits=additional_edits,
+    )
+
+
+class IMP005(base.Rule):
+    """Flag plain imports used to access submodules via attribute; require from-imports.
+
+    When a module is imported with ``import X`` and subsequently accessed as
+    ``X.submodule.something`` where ``submodule`` is a real importable submodule,
+    prefer ``from X import submodule`` to make the submodule dependency explicit.
+
+    Allowed:
+        from os import path
+        import os; os.getcwd()        # os itself, not a submodule access
+
+    Flagged:
+        import os; os.path.join(...)
+        import docx; docx.declarative.Document()
+    """
+
+    def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
+        """Return a diagnostic for every plain import used via submodule access."""
+        diagnostics: list[base.Diagnostic] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Import):
+                continue
+
+            violating: dict[ast.alias, frozenset[str]] = {}
+            for alias in node.names:
+                # Skip dotted imports — IMP003 already handles those.
+                if "." in alias.name:
+                    continue
+                local_name = alias.asname or alias.name
+                submodules = _imp005_submodule_attrs(local_name, alias.name, tree)
+                if submodules:
+                    violating[alias] = submodules
+
+            if not violating:
+                continue
+
+            fix = _imp005_fix(node, violating, tree)
+
+            for alias, submodule_names in violating.items():
+                names_str = ", ".join(sorted(submodule_names))
+                local_name = alias.asname or alias.name
+                diagnostics.append(
+                    base.Diagnostic(
+                        rule_id="IMP005",
+                        message=(
+                            f"Use `from {alias.name} import {names_str}`"
+                            f" instead of accessing submodule(s) via `{local_name}`"
+                        ),
+                        line=node.lineno,
+                        col=node.col_offset,
+                        end_line=node.end_lineno or node.lineno,
+                        end_col=node.end_col_offset or node.col_offset,
+                        severity=base.Severity.WARNING,
+                        fix=fix,
+                    )
+                )
+
         return diagnostics

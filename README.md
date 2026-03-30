@@ -42,8 +42,9 @@ Communicates over stdio using the Language Server Protocol. Configure your edito
 | **IMP002** | `import typing` and `import typing_extensions` are disallowed. Use `from typing import X` and `from typing_extensions import X` to import names directly.                                                                             |
 | **IMP003** | Dotted plain imports (`import os.path`) are disallowed. Use `from os import path` instead. `collections.abc` is exempt (see IMP004).                                                                                                  |
 | **IMP004** | `import collections.abc` is disallowed. Use `from collections.abc import X` to import names directly.                                                                                                                                 |
+| **IMP005** | `import X` followed by `X.submodule.something` is disallowed when `submodule` is a real importable submodule of `X`. Use `from X import submodule` to make the submodule dependency explicit. Dotted imports (`import X.Y`) are exempt (see IMP003). |
 
-The four rules together enforce a consistent import style: every name you use is either a bare module you imported at the top level, or a submodule you accessed via `from package import submodule`.
+The five rules together enforce a consistent import style: every name you use is either a bare module you imported at the top level, or a submodule you accessed via `from package import submodule`.
 
 ### Naming
 
