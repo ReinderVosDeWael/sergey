@@ -1,4 +1,4 @@
-"""Tests for IMP001, IMP002, IMP003, and IMP004 import-style rules."""
+"""Tests for IMP001, IMP002, IMP003, IMP004, and IMP005 import-style rules."""
 
 import ast
 import textwrap
@@ -24,6 +24,21 @@ def _check_imp003(source: str) -> list[str]:
 def _check_imp004(source: str) -> list[str]:
     tree = ast.parse(textwrap.dedent(source))
     return [diag.rule_id for diag in imports.IMP004().check(tree, source)]
+
+
+def _check_imp005(source: str) -> list[str]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.rule_id for diag in imports.IMP005().check(tree, source)]
+
+
+def _diags_imp005(source: str) -> list[base.Diagnostic]:
+    tree = ast.parse(textwrap.dedent(source))
+    return imports.IMP005().check(tree, source)
+
+
+def _fix_imp005(source: str) -> list[base.Fix | None]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.fix for diag in imports.IMP005().check(tree, source)]
 
 
 # ---------------------------------------------------------------------------
@@ -830,3 +845,245 @@ class TestIMP004Fix:
         diags = _diags_imp004(source)
         assert diags[0].fix is not None
         assert diags[0].fix.replacement == "from collections.abc import Mapping"
+
+
+# ---------------------------------------------------------------------------
+# IMP005 — plain imports used via submodule attribute access
+# ---------------------------------------------------------------------------
+
+
+class TestIMP005:
+    def test_plain_import_no_submodule_access_ok(self) -> None:
+        # import os; os.getcwd() — getcwd is not a submodule
+        assert _check_imp005("import os\nos.getcwd()") == []
+
+    def test_plain_import_not_used_ok(self) -> None:
+        assert _check_imp005("import os") == []
+
+    def test_from_import_ok(self) -> None:
+        assert _check_imp005("from os import path") == []
+
+    def test_dotted_import_not_flagged_by_imp005(self) -> None:
+        # import os.path is an IMP003 violation, not IMP005
+        assert _check_imp005("import os.path\nos.path.join('a', 'b')") == []
+
+    def test_submodule_access_flagged(self) -> None:
+        # os.path is a real submodule of os
+        source = "import os\nos.path.join('a', 'b')"
+        assert _check_imp005(source) == ["IMP005"]
+
+    def test_message_contains_module_and_submodule(self) -> None:
+        source = "import os\nos.path.join('a', 'b')"
+        tree = ast.parse(source)
+        diags = imports.IMP005().check(tree, source)
+        assert len(diags) == 1
+        assert "from os import path" in diags[0].message
+        assert "os" in diags[0].message
+
+    def test_rule_id(self) -> None:
+        source = "import os\nos.path.join('a', 'b')"
+        tree = ast.parse(source)
+        diags = imports.IMP005().check(tree, source)
+        assert diags[0].rule_id == "IMP005"
+
+    def test_diagnostic_line_number(self) -> None:
+        source = textwrap.dedent("""\
+            import sys
+            import os
+            os.path.join('a', 'b')
+        """)
+        tree = ast.parse(source)
+        diags = imports.IMP005().check(tree, source)
+        assert len(diags) == 1
+        assert diags[0].line == 2
+
+    def test_multiple_submodules_one_diagnostic(self) -> None:
+        # Both os.path and os.stat are submodules — one diagnostic per import
+        source = textwrap.dedent("""\
+            import importlib
+            importlib.util.find_spec('os')
+            importlib.abc.Loader
+        """)
+        diags = _diags_imp005(source)
+        assert len(diags) == 1
+        assert "util" in diags[0].message
+        assert "abc" in diags[0].message
+
+    def test_aliased_import_flagged(self) -> None:
+        source = "import os as operating_system\noperating_system.path.join('a', 'b')"
+        assert _check_imp005(source) == ["IMP005"]
+
+    def test_aliased_import_message_uses_module_name(self) -> None:
+        source = "import os as operating_system\noperating_system.path.join('a', 'b')"
+        tree = ast.parse(source)
+        diags = imports.IMP005().check(tree, source)
+        assert "from os import path" in diags[0].message
+
+    def test_two_imports_both_violating(self) -> None:
+        source = textwrap.dedent("""\
+            import os
+            import importlib
+            os.path.join('a', 'b')
+            importlib.util.find_spec('os')
+        """)
+        assert _check_imp005(source) == ["IMP005", "IMP005"]
+
+    def test_multi_alias_import_only_violating_flagged(self) -> None:
+        # import os, sys — only os has a submodule access
+        source = textwrap.dedent("""\
+            import os, sys
+            os.path.join('a', 'b')
+            sys.argv
+        """)
+        diags = _diags_imp005(source)
+        assert len(diags) == 1
+        assert "os" in diags[0].message
+
+
+# ---------------------------------------------------------------------------
+# IMP005 — auto-fix
+# ---------------------------------------------------------------------------
+
+
+class TestIMP005Fix:
+    def test_simple_submodule_fix(self) -> None:
+        source = textwrap.dedent("""\
+            import os
+            os.path.join('a', 'b')
+        """)
+        fixes = _fix_imp005(source)
+        assert len(fixes) == 1
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from os import path"
+
+    def test_reference_rewrite(self) -> None:
+        source = textwrap.dedent("""\
+            import os
+            os.path.join('a', 'b')
+        """)
+        diags = _diags_imp005(source)
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "path"
+        assert edits[0].line == 2
+
+    def test_multiple_refs_rewritten(self) -> None:
+        source = textwrap.dedent("""\
+            import os
+            os.path.join('a', 'b')
+            os.path.exists('/tmp')
+        """)
+        diags = _diags_imp005(source)
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 2
+        assert all(e.replacement == "path" for e in edits)
+
+    def test_multiple_submodules_fix(self) -> None:
+        source = textwrap.dedent("""\
+            import importlib
+            importlib.util.find_spec('os')
+            importlib.abc.Loader
+        """)
+        fixes = _fix_imp005(source)
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from importlib import abc, util"
+
+    def test_multiple_submodule_refs_rewritten(self) -> None:
+        source = textwrap.dedent("""\
+            import importlib
+            importlib.util.find_spec('os')
+            importlib.abc.Loader
+        """)
+        diags = _diags_imp005(source)
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 2
+        replacements = {e.replacement for e in edits}
+        assert replacements == {"util", "abc"}
+
+    def test_keeps_import_when_non_submodule_access(self) -> None:
+        # os.getcwd() is not a submodule — keep import os, add from os import path
+        source = textwrap.dedent("""\
+            import os
+            os.getcwd()
+            os.path.join('a', 'b')
+        """)
+        fixes = _fix_imp005(source)
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "import os\nfrom os import path"
+
+    def test_keeps_import_when_bare_name_used(self) -> None:
+        source = textwrap.dedent("""\
+            import os
+            x = os
+            os.path.join('a', 'b')
+        """)
+        fixes = _fix_imp005(source)
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "import os\nfrom os import path"
+
+    def test_aliased_import_fix(self) -> None:
+        source = textwrap.dedent("""\
+            import os as operating_system
+            operating_system.path.join('a', 'b')
+        """)
+        fixes = _fix_imp005(source)
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from os import path"
+
+    def test_aliased_import_reference_rewrite(self) -> None:
+        source = textwrap.dedent("""\
+            import os as operating_system
+            operating_system.path.join('a', 'b')
+        """)
+        diags = _diags_imp005(source)
+        assert diags[0].fix is not None
+        edits = diags[0].fix.additional_edits
+        assert len(edits) == 1
+        assert edits[0].replacement == "path"
+
+    def test_no_fix_on_name_conflict(self) -> None:
+        source = textwrap.dedent("""\
+            import os
+            path = '/tmp'
+            os.path.join('a', 'b')
+        """)
+        fixes = _fix_imp005(source)
+        assert fixes[0] is None
+
+    def test_multi_alias_import_fix(self) -> None:
+        # import os, sys — only os violates; sys kept as-is in replacement
+        # aliases are emitted in their original order: os (violating) then sys (kept)
+        source = textwrap.dedent("""\
+            import os, sys
+            os.path.join('a', 'b')
+            sys.argv
+        """)
+        fixes = _fix_imp005(source)
+        assert fixes[0] is not None
+        assert fixes[0].replacement == "from os import path\nimport sys"
+
+    def test_indented_fix_preserves_indent(self) -> None:
+        source = textwrap.dedent("""\
+            def f():
+                import os
+                os.path.join('a', 'b')
+        """)
+        diags = _diags_imp005(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "from os import path"
+
+    def test_indented_fix_with_non_submodule_preserves_indent(self) -> None:
+        source = textwrap.dedent("""\
+            def f():
+                import os
+                os.getcwd()
+                os.path.join('a', 'b')
+        """)
+        diags = _diags_imp005(source)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.replacement == "import os\n    from os import path"

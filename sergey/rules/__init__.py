@@ -10,6 +10,7 @@ ALL_RULES: Final[tuple[base.Rule, ...]] = (
     imports.IMP002(),
     imports.IMP003(),
     imports.IMP004(),
+    imports.IMP005(),
     naming.NAM001(),
     naming.NAM002(),
     naming.NAM003(),
