@@ -77,6 +77,7 @@ The five rules together enforce a consistent import style: every name you use is
 | **STR004** | List and set literals inside functions that are never mutated and are not part of the function output (`return`/`yield`) should use immutable alternatives: `tuple` instead of `[]` and `frozenset` instead of `{}`. Only plain literals are checked; constructor calls and comprehensions are not covered. |
 | **STR005** | Module-level constants (SCREAMING_SNAKE_CASE names) must carry a `Final` annotation (`name: Final = ...`) so static type checkers can enforce that they are never reassigned. Plain assignments and non-`Final` annotations are flagged. Dunder names (`__all__`, `__version__`, etc.) are exempt. Only direct `module.body` assignments are checked; constants inside functions, classes, or nested blocks are not. |
 | **STR006** | Module-level constants (SCREAMING_SNAKE_CASE names) must not be assigned mutable `list` or `set` literals. `Final` prevents rebinding but not in-place mutation, so use `tuple` instead of `[...]` and `frozenset` instead of `{...}` to enforce immutability at the value level. Only plain literals at module scope are checked; dict literals, constructor calls, and comprehensions are not covered. |
+| **STR007** | `Final` annotations on module-level constants must include an explicit type argument (e.g. `Final[int]`, not bare `Final`). A bare `Final` leaves the type implicit and reduces the value static type checkers can provide. Only annotated assignments at module scope are checked. |
 
 ## Suppression
 

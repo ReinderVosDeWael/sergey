@@ -1,4 +1,4 @@
-"""Tests for STR002, STR003, STR004, STR005, and STR006 structure rules."""
+"""Tests for STR002, STR003, STR004, STR005, STR006, and STR007 structure rules."""
 
 import ast
 import textwrap
@@ -1341,3 +1341,55 @@ class TestSTR006:
         assert "set" in diags[0].message
         assert "frozenset" in diags[0].message
         assert "frozenset" in diags[0].message
+
+
+# STR007 — Final annotations must include a type argument
+
+
+def _check_str007(source: str) -> list[str]:
+    tree = ast.parse(textwrap.dedent(source))
+    return [diag.rule_id for diag in structure.STR007().check(tree, source)]
+
+
+class TestSTR007:
+    def test_typed_final_ok(self) -> None:
+        assert _check_str007("MAX: Final[int] = 100") == []
+
+    def test_typed_final_str_ok(self) -> None:
+        assert _check_str007('LABEL: Final[str] = "hello"') == []
+
+    def test_typing_final_typed_ok(self) -> None:
+        assert _check_str007("MAX: typing.Final[int] = 100") == []
+
+    def test_bare_final_flagged(self) -> None:
+        assert _check_str007("MAX: Final = 100") == ["STR007"]
+
+    def test_bare_typing_final_flagged(self) -> None:
+        assert _check_str007("MAX: typing.Final = 100") == ["STR007"]
+
+    def test_multiple_bare_finals_flagged(self) -> None:
+        source = """\
+            MAX: Final = 100
+            MIN: Final = 0
+        """
+        assert _check_str007(source) == ["STR007", "STR007"]
+
+    def test_plain_assignment_not_flagged(self) -> None:
+        # STR007 only checks annotated assignments; plain assignments are STR005's.
+        assert _check_str007("MAX = 100") == []
+
+    def test_non_final_annotation_not_flagged(self) -> None:
+        assert _check_str007("MAX: int = 100") == []
+
+    def test_message_mentions_constant_name(self) -> None:
+        source = "TIMEOUT: Final = 30"
+        tree = ast.parse(source)
+        diags = structure.STR007().check(tree, source)
+        assert diags[0].rule_id == "STR007"
+        assert "TIMEOUT" in diags[0].message
+
+    def test_message_mentions_final_type(self) -> None:
+        source = "TIMEOUT: Final = 30"
+        tree = ast.parse(source)
+        diags = structure.STR007().check(tree, source)
+        assert "Final[" in diags[0].message
