@@ -347,7 +347,20 @@ def _imp001_fix(
 
 
 def _is_submodule(parent: str, name: str) -> bool:
-    """Return True if `parent.name` resolves to an importable module or package."""
+    """Return True if `parent.name` resolves to an importable module or package.
+
+    When the *parent* package itself cannot be resolved (e.g. it is not
+    installed in the current environment), we conservatively return ``True``
+    to avoid false positives on imports from unknown packages.
+    """
+    try:
+        parent_spec = importlib_util.find_spec(parent)
+    except Exception:  # noqa: BLE001
+        return True
+
+    if parent_spec is None:
+        return True
+
     try:
         return importlib_util.find_spec(f"{parent}.{name}") is not None
     except Exception:  # noqa: BLE001

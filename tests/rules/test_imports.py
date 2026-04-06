@@ -142,6 +142,15 @@ class TestIMP001:
         assert "join" in diags[0].message
         assert "os.path" in diags[0].message
 
+    def test_unresolvable_parent_not_flagged(self) -> None:
+        # When the parent package is not installed, we cannot determine whether
+        # the imported name is a submodule.  Assume it is to avoid false
+        # positives (e.g. ``from secretary.integrations import calendar``).
+        assert _check_imp001("from secretary.integrations import calendar") == []
+
+    def test_unresolvable_parent_multiple_names_not_flagged(self) -> None:
+        assert _check_imp001("from secretary.integrations import calendar, email") == []
+
 
 # ---------------------------------------------------------------------------
 # IMP001 — auto-fix
