@@ -1,4 +1,4 @@
-"""Structure rules: STR002, STR003, STR004, STR005, STR006."""
+"""Structure rules: STR002, STR003, STR004, STR005, STR006, STR007."""
 
 import ast
 from collections.abc import Iterator
@@ -798,6 +798,76 @@ class STR006(base.Rule):
         """Return a diagnostic for each constant assigned a mutable literal."""
         try:
             return _check_module_mutables(tree)
+        except Exception:  # noqa: BLE001, S110
+            pass
+        return []
+
+
+# ---------------------------------------------------------------------------
+# STR007
+# ---------------------------------------------------------------------------
+
+
+def _is_bare_final(annotation: ast.expr) -> bool:
+    """Return True if annotation is ``Final`` or ``typing.Final`` without a type."""
+    if isinstance(annotation, ast.Name):
+        return annotation.id == "Final"
+    if isinstance(annotation, ast.Attribute):
+        return annotation.attr == "Final"
+    return False
+
+
+def _check_module_bare_finals(tree: ast.Module) -> list[base.Diagnostic]:
+    """Return STR007 diagnostics for ``Final`` annotations missing a type."""
+    diagnostics: list[base.Diagnostic] = []
+    for node in tree.body:
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and _is_bare_final(node.annotation)
+        ):
+            name = node.target.id
+            diagnostics.append(
+                base.Diagnostic(
+                    rule_id="STR007",
+                    message=(
+                        f"Module-level constant `{name}` uses bare `Final`;"
+                        f" use `Final[<type>]` (e.g. `{name}: Final[int] = ...`)"
+                    ),
+                    line=node.lineno,
+                    col=node.col_offset,
+                    end_line=node.end_lineno or node.lineno,
+                    end_col=node.end_col_offset or node.col_offset,
+                    severity=base.Severity.WARNING,
+                )
+            )
+    return diagnostics
+
+
+class STR007(base.Rule):
+    """Flag ``Final`` annotations that are missing a type argument.
+
+    A bare ``Final`` annotation (without a subscript) leaves the type implicit
+    and reduces the value that static type checkers can provide.  Always supply
+    an explicit type so that the annotation is self-documenting and fully
+    checkable.
+
+    Only module-level annotated assignments are checked.
+
+    Allowed:
+        MAX_SIZE: Final[int] = 100
+        LABEL: Final[str] = "hello"
+        typing.Final[int]
+
+    Flagged:
+        MAX_SIZE: Final = 100           # bare Final, no type argument
+        LABEL: typing.Final = "hello"   # bare typing.Final, no type argument
+    """
+
+    def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
+        """Return a diagnostic for each bare ``Final`` missing a type argument."""
+        try:
+            return _check_module_bare_finals(tree)
         except Exception:  # noqa: BLE001, S110
             pass
         return []

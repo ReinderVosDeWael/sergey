@@ -22,6 +22,7 @@ ALL_RULES: Final[tuple[base.Rule, ...]] = (
     structure.STR004(),
     structure.STR005(),
     structure.STR006(),
+    structure.STR007(),
 )
 
 __all__ = ["ALL_RULES"]
