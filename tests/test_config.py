@@ -10,7 +10,7 @@ from sergey.rules import imports, naming, pydantic, structure
 # Helpers
 # ---------------------------------------------------------------------------
 
-_SAMPLE_RULES = [imports.IMP001(), imports.IMP002(), pydantic.PDT001()]
+_SAMPLE_RULES = [imports.IMP002(), imports.IMP003(), pydantic.PDT001()]
 
 
 def _ids(rule_list: list) -> list[str]:
@@ -123,46 +123,46 @@ class TestFilterRules:
         )
 
     def test_select_restricts_to_listed_rules(self) -> None:
-        cfg = sergey_config.Config(select=frozenset({"IMP001"}), ignore=frozenset())
+        cfg = sergey_config.Config(select=frozenset({"IMP002"}), ignore=frozenset())
         result = sergey_config.filter_rules(_SAMPLE_RULES, cfg)
-        assert _ids(result) == ["IMP001"]
+        assert _ids(result) == ["IMP002"]
 
     def test_select_multiple(self) -> None:
         cfg = sergey_config.Config(
-            select=frozenset({"IMP001", "PDT001"}), ignore=frozenset()
+            select=frozenset({"IMP002", "PDT001"}), ignore=frozenset()
         )
         result = sergey_config.filter_rules(_SAMPLE_RULES, cfg)
-        assert set(_ids(result)) == {"IMP001", "PDT001"}
+        assert set(_ids(result)) == {"IMP002", "PDT001"}
 
     def test_select_unknown_id_returns_empty(self) -> None:
         cfg = sergey_config.Config(select=frozenset({"UNKNOWN"}), ignore=frozenset())
         assert sergey_config.filter_rules(_SAMPLE_RULES, cfg) == []
 
     def test_ignore_removes_listed_rules(self) -> None:
-        cfg = sergey_config.Config(select=None, ignore=frozenset({"IMP001"}))
+        cfg = sergey_config.Config(select=None, ignore=frozenset({"IMP002"}))
         result = _ids(sergey_config.filter_rules(_SAMPLE_RULES, cfg))
-        assert "IMP001" not in result
-        assert "IMP002" in result
+        assert "IMP002" not in result
+        assert "IMP003" in result
         assert "PDT001" in result
 
     def test_ignore_all_returns_empty(self) -> None:
         cfg = sergey_config.Config(
-            select=None, ignore=frozenset({"IMP001", "IMP002", "PDT001"})
+            select=None, ignore=frozenset({"IMP002", "IMP003", "PDT001"})
         )
         assert sergey_config.filter_rules(_SAMPLE_RULES, cfg) == []
 
     def test_select_then_ignore(self) -> None:
-        # select IMP001+IMP002, then ignore IMP001 → only IMP002 remains
+        # select IMP002+IMP003, then ignore IMP002 → only IMP003 remains
         cfg = sergey_config.Config(
-            select=frozenset({"IMP001", "IMP002"}), ignore=frozenset({"IMP001"})
+            select=frozenset({"IMP002", "IMP003"}), ignore=frozenset({"IMP002"})
         )
         result = sergey_config.filter_rules(_SAMPLE_RULES, cfg)
-        assert _ids(result) == ["IMP002"]
+        assert _ids(result) == ["IMP003"]
 
     def test_original_order_preserved(self) -> None:
-        cfg = sergey_config.Config(select=None, ignore=frozenset({"IMP002"}))
+        cfg = sergey_config.Config(select=None, ignore=frozenset({"IMP003"}))
         result = _ids(sergey_config.filter_rules(_SAMPLE_RULES, cfg))
-        assert result == ["IMP001", "PDT001"]
+        assert result == ["IMP002", "PDT001"]
 
     def test_empty_rules_list(self) -> None:
         cfg = sergey_config.Config(select=None, ignore=frozenset())
@@ -184,7 +184,7 @@ class TestFilterIntegration:
 
     def test_selected_rule_still_fires(self) -> None:
         cfg = sergey_config.Config(select=frozenset({"NAM002"}), ignore=frozenset())
-        active = sergey_config.filter_rules([naming.NAM002(), imports.IMP001()], cfg)
+        active = sergey_config.filter_rules([naming.NAM002(), imports.IMP002()], cfg)
         az = sergey_analyzer.Analyzer(rules=active)
         diag_ids = [diag.rule_id for diag in az.analyze("x = 1")]
         assert diag_ids == ["NAM002"]
@@ -261,7 +261,7 @@ class TestConfigureRules:
             ignore=frozenset(),
             rule_options={"STR003": {"max_body_stmts": 2}},
         )
-        imp_rule = imports.IMP001()
+        imp_rule = imports.IMP002()
         result = sergey_config.configure_rules([imp_rule], cfg)
         assert result == [imp_rule]
 

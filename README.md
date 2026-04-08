@@ -38,13 +38,12 @@ Communicates over stdio using the Language Server Protocol. Configure your edito
 
 | Rule       | Description                                                                                                                                                                                            |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **IMP001** | `from module import name` is disallowed when `name` is not itself a submodule. Use `import module` and reference `module.name` at call sites. Typing modules, `__future__`, and `collections.abc` are exempt (see IMP002 and IMP004). |
 | **IMP002** | `import typing` and `import typing_extensions` are disallowed. Use `from typing import X` and `from typing_extensions import X` to import names directly.                                                                             |
 | **IMP003** | Dotted plain imports (`import os.path`) are disallowed. Use `from os import path` instead. `collections.abc` is exempt (see IMP004).                                                                                                  |
 | **IMP004** | `import collections.abc` is disallowed. Use `from collections.abc import X` to import names directly.                                                                                                                                 |
 | **IMP005** | `import X` followed by `X.submodule.something` is disallowed when `submodule` is a real importable submodule of `X`. Use `from X import submodule` to make the submodule dependency explicit. Dotted imports (`import X.Y`) are exempt (see IMP003). |
 
-The five rules together enforce a consistent import style: every name you use is either a bare module you imported at the top level, or a submodule you accessed via `from package import submodule`.
+The four rules together enforce a consistent import style: every name you use is either a bare module you imported at the top level, or a submodule you accessed via `from package import submodule`.
 
 ### Naming
 
@@ -86,7 +85,7 @@ The five rules together enforce a consistent import style: every name you use is
 ```python
 x = some_function()  # sergey: noqa
 x = some_function()  # sergey: noqa: NAM002
-x = some_function()  # sergey: noqa: NAM002, IMP001
+x = some_function()  # sergey: noqa: NAM002, IMP002
 ```
 
 ### Suppress an entire file
@@ -95,8 +94,8 @@ Place this comment anywhere in the file (position does not matter):
 
 ```python
 # sergey: disable-file
-# sergey: disable-file: IMP001
-# sergey: disable-file: IMP001, IMP002
+# sergey: disable-file: IMP002
+# sergey: disable-file: IMP002, IMP003
 ```
 
 ## Development
