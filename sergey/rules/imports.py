@@ -1,15 +1,10 @@
-"""Import-style rules: IMP001, IMP002, IMP003, IMP004, and IMP005."""
+"""Import-style rules: IMP002, IMP003, IMP004, and IMP005."""
 
 import ast
 from importlib import util as importlib_util
 from typing import Final
 
 from sergey.rules import base
-
-# Modules excluded from IMP001 — covered by IMP002/IMP004 or are special syntax.
-_IMP001_EXCLUDED: Final[frozenset[str]] = frozenset(
-    {"__future__", "typing", "typing_extensions", "collections.abc"}
-)
 
 # Typing modules covered by IMP002.
 _TYPING_MODULES: Final[frozenset[str]] = frozenset({"typing", "typing_extensions"})
@@ -241,9 +236,7 @@ def _has_name_conflict(
             return True
         if isinstance(n, ast.Import):
             for alias in n.names:
-                local = alias.asname or (
-                    alias.name if "." not in alias.name else None
-                )
+                local = alias.asname or (alias.name if "." not in alias.name else None)
                 if local == name and local not in exclude_names:
                     return True
         if isinstance(n, ast.ImportFrom):
@@ -255,169 +248,12 @@ def _has_name_conflict(
     return False
 
 
-def _imp001_fix(
-    node: ast.ImportFrom,
-    bad_aliases: list[ast.alias],
-    tree: ast.Module,
-) -> base.Fix | None:
-    """Build a fix for an IMP001 violation on *node*.
-
-    Rewrites the import statement and all call-site references so that the
-    module is imported directly and names are accessed as attributes.  The
-    replacement import is always IMP003-compliant: dotted absolute modules use
-    ``from parent import leaf`` syntax rather than ``import parent.leaf``.
-
-    When the leaf name would conflict with an existing binding, an ``as``
-    alias is added using the full module path with dots replaced by
-    underscores (e.g. ``from os import path as os_path``).
-
-    Returns ``None`` when a star import is involved (cannot be fixed
-    automatically).
-    """
-    if any(alias.name == "*" for alias in bad_aliases):
-        return None
-
-    module = node.module or ""
-    level = node.level
-    indent = " " * node.col_offset
-    dots = "." * level
-
-    good_aliases = [alias for alias in node.names if alias not in bad_aliases]
-
-    # --- Build the replacement import statement(s) ---
-    parts: list[str] = []
-
-    if good_aliases:
-        good_names = ", ".join(
-            f"{alias.name} as {alias.asname}" if alias.asname else alias.name
-            for alias in good_aliases
-        )
-        parts.append(f"from {dots}{module} import {good_names}")
-
-    # Determine the IMP003-compliant import and the local name used for rewrites.
-    bad_local_names = {alias.asname or alias.name for alias in bad_aliases}
-    if level == 0 and "." in module:
-        # Absolute dotted: use ``from parent import leaf`` (IMP003-compliant).
-        parent, _, leaf = module.rpartition(".")
-        if _has_name_conflict(leaf, bad_local_names, tree):
-            module_local = module.replace(".", "_")
-            parts.append(f"from {parent} import {leaf} as {module_local}")
-        else:
-            module_local = leaf
-            parts.append(f"from {parent} import {leaf}")
-        ref_prefix = module_local
-    elif level == 0:
-        # Absolute non-dotted: ``import <module>``
-        parts.append(f"import {module}")
-        ref_prefix = module
-    elif "." in module:
-        # Relative with dotted module: ``from .<parent> import <leaf>``
-        parent, _, leaf = module.rpartition(".")
-        parts.append(f"from {dots}{parent} import {leaf}")
-        ref_prefix = leaf
-    else:
-        # Simple relative: ``from <dots> import <module>``
-        parts.append(f"from {dots} import {module}")
-        ref_prefix = module
-
-    replacement = f"\n{indent}".join(parts)
-
-    # --- Map local names to their qualified replacements ---
-    name_map: dict[str, str] = {}
-    for alias in bad_aliases:
-        local_name = alias.asname or alias.name
-        name_map[local_name] = f"{ref_prefix}.{alias.name}"
-
-    # --- Collect reference edits ---
-    additional_edits = [
-        base.TextEdit(
-            line=ref.lineno,
-            col=ref.col_offset,
-            end_line=ref.end_lineno or ref.lineno,
-            end_col=ref.end_col_offset or (ref.col_offset + len(ref.id)),
-            replacement=name_map[ref.id],
-        )
-        for ref in ast.walk(tree)
-        if isinstance(ref, ast.Name)
-        and isinstance(ref.ctx, ast.Load)
-        and ref.id in name_map
-    ]
-
-    return base.Fix(replacement=replacement, additional_edits=additional_edits)
-
-
 def _is_submodule(parent: str, name: str) -> bool:
     """Return True if `parent.name` resolves to an importable module or package."""
     try:
         return importlib_util.find_spec(f"{parent}.{name}") is not None
     except Exception:  # noqa: BLE001
         return False
-
-
-class IMP001(base.Rule):
-    """Flag from-imports that import names (classes/functions) instead of modules.
-
-    Submodule imports are allowed — only names that cannot be resolved as a
-    module are flagged.
-
-    Allowed:
-        import os
-        from os import path
-        from lsprotocol import types   # types is a submodule
-
-    Flagged:
-        from os.path import join
-        from collections import OrderedDict
-    """
-
-    def check(self, tree: ast.Module, source: str) -> list[base.Diagnostic]:
-        """Return a diagnostic for every non-typing from-import of a non-module name."""
-        diagnostics: list[base.Diagnostic] = []
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom):
-                continue
-            module = node.module or ""
-            if module in _IMP001_EXCLUDED:
-                continue
-
-            # For absolute imports, skip names that resolve to submodules.
-            if node.level == 0 and module:
-                bad_aliases = [
-                    alias
-                    for alias in node.names
-                    if not _is_submodule(module, alias.name)
-                ]
-            elif node.level > 0 and not module:
-                # Bare relative imports (e.g. `from . import rules`) are used to
-                # import sibling submodules.  We cannot verify submodule status
-                # without knowing the package root, so we skip them entirely to
-                # avoid false positives.
-                continue
-            else:
-                bad_aliases = list(node.names)
-
-            if not bad_aliases:
-                continue
-
-            names = ", ".join(alias.name for alias in bad_aliases)
-            dots = "." * node.level
-            module_display = f"{dots}{module}" if module else dots
-            diagnostics.append(
-                base.Diagnostic(
-                    rule_id="IMP001",
-                    message=(
-                        f"Import the module directly instead of importing"
-                        f" `{names}` from `{module_display}`"
-                    ),
-                    line=node.lineno,
-                    col=node.col_offset,
-                    end_line=node.end_lineno or node.lineno,
-                    end_col=node.end_col_offset or node.col_offset,
-                    severity=base.Severity.WARNING,
-                    fix=_imp001_fix(node, bad_aliases, tree),
-                )
-            )
-        return diagnostics
 
 
 class IMP002(base.Rule):

@@ -6,7 +6,6 @@ from sergey.rules import base, docs, imports, naming, pydantic, structure
 
 ALL_RULES: Final[tuple[base.Rule, ...]] = (
     docs.DOC001(),
-    imports.IMP001(),
     imports.IMP002(),
     imports.IMP003(),
     imports.IMP004(),

@@ -291,9 +291,7 @@ def _is_frozen_declared(stmt: ast.AnnAssign) -> bool:
     slc = ann.slice
     elts = slc.elts if isinstance(slc, ast.Tuple) else [slc]
     return any(
-        _is_field_call(elt)
-        and isinstance(elt, ast.Call)
-        and _has_frozen_kwarg(elt)
+        _is_field_call(elt) and isinstance(elt, ast.Call) and _has_frozen_kwarg(elt)
         for elt in elts
     )
 

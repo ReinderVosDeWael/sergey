@@ -130,9 +130,9 @@ class TestLspServer:
             )
             proc.stdin.flush()
 
-            # Open a document whose source triggers IMP001.
+            # Open a document whose source triggers IMP002.
             uri = "file:///test.py"
-            source = "from os.path import join\n"
+            source = "import typing\n"
             proc.stdin.write(
                 _encode_message(
                     {
@@ -158,6 +158,6 @@ class TestLspServer:
             diagnostics = notification["params"]["diagnostics"]
             assert len(diagnostics) == 1
             assert diagnostics[0]["source"] == "sergey"
-            assert "IMP001" in diagnostics[0]["message"]
+            assert "IMP002" in diagnostics[0]["message"]
         finally:
             _stop(proc)
